@@ -63,21 +63,30 @@ def save_cfg(cfg):
 
 # ── data class ────────────────────────────────────────────────────────────────
 class Sel:
-    """One rectangular selection (canvas coordinates)."""
-    def __init__(self, rid, lid, x1, y1, x2, y2):
+    """One rectangular selection stored in IMAGE-space pixels (floats).
+    Canvas coords are derived on demand from the current scale+offset."""
+    def __init__(self, rid, lid, ix1, iy1, ix2, iy2):
         self.rid = rid
         self.lid = lid
-        self.x1, self.y1, self.x2, self.y2 = x1, y1, x2, y2
+        # stored in image-space so zoom/pan never affects the region
+        self.ix1, self.iy1, self.ix2, self.iy2 = ix1, iy1, ix2, iy2
         self.handles = []
 
-    def norm(self):
-        return (min(self.x1, self.x2), min(self.y1, self.y2),
-                max(self.x1, self.x2), max(self.y1, self.y2))
+    def inorm(self):
+        """Normalised image-space coords."""
+        return (min(self.ix1, self.ix2), min(self.iy1, self.iy2),
+                max(self.ix1, self.ix2), max(self.iy1, self.iy2))
 
-    def img_coords(self, scale, ox, oy):
-        x1, y1, x2, y2 = self.norm()
-        return (int((x1-ox)/scale), int((y1-oy)/scale),
-                int((x2-ox)/scale), int((y2-oy)/scale))
+    def canvas_coords(self, scale, ox, oy):
+        """Convert to canvas coords for the current view."""
+        x1, y1, x2, y2 = self.inorm()
+        return (ox + x1*scale, oy + y1*scale,
+                ox + x2*scale, oy + y2*scale)
+
+    def img_coords(self, scale=None, ox=None, oy=None):
+        """Integer image-space coords (scale/ox/oy ignored — kept for compat)."""
+        x1, y1, x2, y2 = self.inorm()
+        return int(x1), int(y1), int(x2), int(y2)
 
 
 # ── main window ───────────────────────────────────────────────────────────────
@@ -134,6 +143,7 @@ class App(tk.Tk):
 
         self._btn(tb, "−", self._zoom_out, ACCENT2, w=3).pack(side=tk.RIGHT, padx=(4,10), pady=10)
         self._btn(tb, "+", self._zoom_in,  ACCENT2, w=3).pack(side=tk.RIGHT, padx=4,     pady=10)
+        self._btn(tb, "⊡", self._zoom_fit,  ACCENT2, w=3).pack(side=tk.RIGHT, padx=4,     pady=10)
         self.zoom_lbl = tk.StringVar(value="100%")
         tk.Label(tb, textvariable=self.zoom_lbl, bg=PANEL, fg=TEXT,
                  font=FSM, width=6).pack(side=tk.RIGHT)
@@ -441,7 +451,7 @@ class App(tk.Tk):
     def _hit(self, cx, cy):
         E = self._EDGE
         for i in reversed(range(len(self.sels))):
-            x1, y1, x2, y2 = self.sels[i].norm()
+            x1, y1, x2, y2 = self.sels[i].canvas_coords(self.scale, *self.offset)
             if not (x1-E <= cx <= x2+E and y1-E <= cy <= y2+E):
                 continue
             oL = abs(cx-x1) <= E;  oR = abs(cx-x2) <= E
@@ -495,7 +505,7 @@ class App(tk.Tk):
             self._activate(idx)
             self.drag = {"mode": part, "idx": idx,
                          "ox": cx, "oy": cy,
-                         "orig": self.sels[idx].norm()}
+                         "orig": self.sels[idx].inorm()}
         else:
             self._deactivate()
             self.drag = {"mode": "new", "ox": cx, "oy": cy, "tmp": None, "tlbl": None}
@@ -519,18 +529,20 @@ class App(tk.Tk):
             return
 
         s = self.sels[d["idx"]]
-        dx, dy = cx - d["ox"], cy - d["oy"]
-        x1o, y1o, x2o, y2o = d["orig"]
+        # convert canvas delta to image-space delta
+        ddx = (cx - d["ox"]) / self.scale
+        ddy = (cy - d["oy"]) / self.scale
+        ix1o, iy1o, ix2o, iy2o = d["orig"]  # image-space snapshot
         p = d["mode"]
-        if   p == "move": s.x1,s.y1,s.x2,s.y2 = x1o+dx,y1o+dy,x2o+dx,y2o+dy
-        elif p == "TL":   s.x1,s.y1 = x1o+dx, y1o+dy
-        elif p == "TR":   s.x2,s.y1 = x2o+dx, y1o+dy
-        elif p == "BL":   s.x1,s.y2 = x1o+dx, y2o+dy
-        elif p == "BR":   s.x2,s.y2 = x2o+dx, y2o+dy
-        elif p == "L":    s.x1 = x1o+dx
-        elif p == "R":    s.x2 = x2o+dx
-        elif p == "T":    s.y1 = y1o+dy
-        elif p == "B":    s.y2 = y2o+dy
+        if   p == "move": s.ix1,s.iy1,s.ix2,s.iy2 = ix1o+ddx,iy1o+ddy,ix2o+ddx,iy2o+ddy
+        elif p == "TL":   s.ix1,s.iy1 = ix1o+ddx, iy1o+ddy
+        elif p == "TR":   s.ix2,s.iy1 = ix2o+ddx, iy1o+ddy
+        elif p == "BL":   s.ix1,s.iy2 = ix1o+ddx, iy2o+ddy
+        elif p == "BR":   s.ix2,s.iy2 = ix2o+ddx, iy2o+ddy
+        elif p == "L":    s.ix1 = ix1o+ddx
+        elif p == "R":    s.ix2 = ix2o+ddx
+        elif p == "T":    s.iy1 = iy1o+ddy
+        elif p == "B":    s.iy2 = iy2o+ddy
         self._redraw_sel(d["idx"])
         self._refresh_list()
 
@@ -559,19 +571,23 @@ class App(tk.Tk):
     # ── selection management ──────────────────────────────────────────────────
 
     def _add_sel(self, x1, y1, x2, y2):
+        """x1..y2 are canvas coords; we immediately convert to image-space."""
+        ox, oy = self.offset
+        ix1, iy1 = (x1-ox)/self.scale, (y1-oy)/self.scale
+        ix2, iy2 = (x2-ox)/self.scale, (y2-oy)/self.scale
         n   = len(self.sels) + 1
-        rid = self.canvas.create_rectangle(x1, y1, x2, y2,
+        cx1,cy1,cx2,cy2 = self._i2c(ix1,iy1,ix2,iy2)
+        rid = self.canvas.create_rectangle(cx1, cy1, cx2, cy2,
                                            outline=SEL_NORM, width=2, tags="sel")
         lid = self.canvas.create_text(
-            min(x1,x2)+4, min(y1,y2)+4,
+            min(cx1,cx2)+4, min(cy1,cy2)+4,
             text=f"#{n}", fill=SEL_NORM, anchor="nw", font=FSM, tags="sel")
-        s = Sel(rid, lid, x1, y1, x2, y2)
+        s = Sel(rid, lid, ix1, iy1, ix2, iy2)
         self.sels.append(s)
         self._draw_handles(len(self.sels)-1)
         self._activate(len(self.sels)-1)
         self._refresh_list()
-        iw = abs(int((x2-x1)/self.scale))
-        ih = abs(int((y2-y1)/self.scale))
+        iw = abs(int(ix2-ix1)); ih = abs(int(iy2-iy1))
         self._status(f"Selection #{n} — {iw}×{ih}px   |   {len(self.sels)} total")
 
     def _draw_handles(self, idx):
@@ -579,7 +595,7 @@ class App(tk.Tk):
         for h in s.handles:
             self.canvas.delete(h)
         s.handles.clear()
-        x1, y1, x2, y2 = s.norm()
+        x1, y1, x2, y2 = s.canvas_coords(self.scale, *self.offset)
         r = self.HR
         for hx, hy in [(x1,y1),(x2,y1),(x1,y2),(x2,y2)]:
             hid = self.canvas.create_rectangle(
@@ -589,8 +605,9 @@ class App(tk.Tk):
 
     def _redraw_sel(self, idx):
         s = self.sels[idx]
-        self.canvas.coords(s.rid, s.x1, s.y1, s.x2, s.y2)
-        self.canvas.coords(s.lid, min(s.x1,s.x2)+4, min(s.y1,s.y2)+4)
+        cx1, cy1, cx2, cy2 = s.canvas_coords(self.scale, *self.offset)
+        self.canvas.coords(s.rid, cx1, cy1, cx2, cy2)
+        self.canvas.coords(s.lid, min(cx1,cx2)+4, min(cy1,cy2)+4)
         self._draw_handles(idx)
 
     def _activate(self, idx):
@@ -719,7 +736,7 @@ class App(tk.Tk):
             ox, oy = self.offset
             self._add_sel(
                 ox + ix1*self.scale, oy + iy1*self.scale,
-                ox + ix2*self.scale, oy + iy2*self.scale)
+                ox + ix2*self.scale, oy + iy2*self.scale)  # _add_sel converts back to img-space
         self._deactivate()
         self._refresh_list()
 
@@ -756,21 +773,20 @@ class App(tk.Tk):
             max(iw+ox*2, self.canvas.winfo_width()),
             max(ih+oy*2, self.canvas.winfo_height())))
         self.zoom_lbl.set(f"{int(self.scale*100)}%")
+        # Offset may have changed (window resize/fit) — reposition all sels
+        for i in range(len(self.sels)):
+            self._redraw_sel(i)
 
     # ── zoom ──────────────────────────────────────────────────────────────────
 
+    def _zoom_fit(self): self._fit_image()
     def _zoom_in(self):  self._set_zoom(min(self.scale*1.25, 8.0))
     def _zoom_out(self): self._set_zoom(max(self.scale/1.25, 0.05))
 
     def _set_zoom(self, ns):
         if not self.pil_img:
             return
-        ratio = ns / self.scale
         self.scale = ns
-        ox, oy = self.offset
-        for s in self.sels:
-            s.x1 = ox + (s.x1-ox)*ratio;  s.y1 = oy + (s.y1-oy)*ratio
-            s.x2 = ox + (s.x2-ox)*ratio;  s.y2 = oy + (s.y2-oy)*ratio
         self._redraw_image()
         for i in range(len(self.sels)):
             self._redraw_sel(i)
@@ -781,6 +797,12 @@ class App(tk.Tk):
     def _to_img(self, cx, cy):
         ox, oy = self.offset
         return int((cx-ox)/self.scale), int((cy-oy)/self.scale)
+
+    def _i2c(self, ix1, iy1, ix2, iy2):
+        """Image-space → canvas coords."""
+        ox, oy = self.offset
+        return (ox+ix1*self.scale, oy+iy1*self.scale,
+                ox+ix2*self.scale, oy+iy2*self.scale)
 
     # ── save ──────────────────────────────────────────────────────────────────
 
