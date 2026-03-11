@@ -97,7 +97,7 @@ class App(tk.Tk):
         super().__init__()
         self.title("Image Splicer")
         self.configure(bg=BG)
-        self.minsize(1100, 540)
+        self.minsize(1100, 600)
 
         self.cfg        = load_cfg()
         self.pil_img    = None
@@ -159,11 +159,11 @@ class App(tk.Tk):
 
         # Zoom controls (packed right-to-left)
         self._btn(tb, "−", self._zoom_out, ACCENT2, w=3,
-                  tip="Zoom out  (Ctrl+Scroll)").pack(side=tk.RIGHT, padx=(4,10), pady=10)
+                  tip=f"Zoom out  ({mod}+−)").pack(side=tk.RIGHT, padx=(4,10), pady=10)
         self._btn(tb, "+", self._zoom_in,  ACCENT2, w=3,
-                  tip="Zoom in  (Ctrl+Scroll)").pack(side=tk.RIGHT, padx=4, pady=10)
+                  tip=f"Zoom in  ({mod}+=)").pack(side=tk.RIGHT, padx=4, pady=10)
         self._btn(tb, "⊡", self._zoom_fit, ACCENT2, w=3,
-                  tip="Fit image to window").pack(side=tk.RIGHT, padx=4, pady=10)
+                  tip=f"Fit image to window  ({mod}+0)").pack(side=tk.RIGHT, padx=4, pady=10)
         self.zoom_lbl = tk.StringVar(value="100%")
         tk.Label(tb, textvariable=self.zoom_lbl, bg=PANEL, fg=TEXT,
                  font=FSM, width=6).pack(side=tk.RIGHT)
@@ -352,12 +352,19 @@ class App(tk.Tk):
             try: self.canvas.bind(mod, lambda e: self._del_last())
             except Exception: pass
 
-        self.canvas.bind("<Control-MouseWheel>",
+        # Plain scroll wheel zooms (no modifier needed)
+        self.canvas.bind("<MouseWheel>",
                          lambda e: self._zoom_in() if e.delta > 0 else self._zoom_out())
-        self.canvas.bind("<Command-MouseWheel>",
-                         lambda e: self._zoom_in() if e.delta > 0 else self._zoom_out())
-        self.canvas.bind("<Control-Button-4>",  lambda e: self._zoom_in())
-        self.canvas.bind("<Control-Button-5>",  lambda e: self._zoom_out())
+        self.canvas.bind("<Button-4>",  lambda e: self._zoom_in())   # Linux scroll up
+        self.canvas.bind("<Button-5>",  lambda e: self._zoom_out())  # Linux scroll dn
+
+        # Ctrl+= / Ctrl+- (and Cmd on macOS) for keyboard zoom
+        for mod in ("Control", "Command"):
+            for key in ("equal", "plus"):  # = and + (shifted =)
+                try: self.bind(f"<{mod}-{key}>", lambda e: self._zoom_in())
+                except Exception: pass
+            try: self.bind(f"<{mod}-minus>", lambda e: self._zoom_out())
+            except Exception: pass
 
         for mod in ("<Control-o>", "<Command-o>"):
             try: self.bind(mod, lambda e: self._open_file())
@@ -365,6 +372,14 @@ class App(tk.Tk):
         for mod in ("<Control-s>", "<Command-s>"):
             try: self.bind(mod, lambda e: self._save_crops())
             except Exception: pass
+        for mod in ("<Control-0>", "<Command-0>"):
+            try: self.bind(mod, lambda e: self._zoom_fit())
+            except Exception: pass
+
+        # Shift+drag to pan
+        self.canvas.bind("<Shift-ButtonPress-1>",   self._pan_start)
+        self.canvas.bind("<Shift-B1-Motion>",       self._pan_move)
+        self.canvas.bind("<Shift-ButtonRelease-1>", self._pan_end)
 
         self.bind("<Configure>", self._on_win_resize)
         self.canvas.focus_set()
@@ -491,6 +506,32 @@ class App(tk.Tk):
             parts = [str(a) for a in args]
         if parts:
             self._try_load(parts[0].strip())
+
+    def _pan_start(self, event):
+        self.canvas.configure(cursor="fleur")
+        self._pan_last = (event.x, event.y)
+
+    def _pan_move(self, event):
+        if not hasattr(self, '_pan_last') or self._pan_last is None: return
+        dx = self._pan_last[0] - event.x
+        dy = self._pan_last[1] - event.y
+        # Convert pixel delta to a fraction of the scroll region
+        sr = self.canvas.cget('scrollregion')
+        if not sr: return
+        x0, y0, x1, y1 = map(float, sr.split())
+        total_w = x1 - x0
+        total_h = y1 - y0
+        if total_w > 0:
+            cur_x = self.canvas.xview()[0]
+            self.canvas.xview_moveto(cur_x + dx / total_w)
+        if total_h > 0:
+            cur_y = self.canvas.yview()[0]
+            self.canvas.yview_moveto(cur_y + dy / total_h)
+        self._pan_last = (event.x, event.y)
+
+    def _pan_end(self, event):
+        self._pan_last = None
+        self.canvas.configure(cursor="crosshair")
 
     def _on_win_resize(self, e):
         if self._resize_id:
