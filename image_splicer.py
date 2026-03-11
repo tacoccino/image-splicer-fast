@@ -23,6 +23,11 @@ except ImportError:
     from PIL import Image, ImageTk
 
 CONFIG_FILE = Path.home() / ".image_splicer_config.json"
+DEBUG = "--debug" in sys.argv
+
+def dlog(*args):
+    if DEBUG:
+        print("[dnd]", *args)
 
 # ── palette ──────────────────────────────────────────────────────────────────
 BG       = "#1a1a2e"
@@ -248,7 +253,16 @@ class App(tk.Tk):
         except Exception:
             pass
 
-        # Strategy 2: macOS native tk::mac::OpenDocument
+        # Strategy 2: Windows — hook WM_DROPFILES via ctypes directly.
+        # No extra packages needed; works by subclassing the HWND and
+        # intercepting the drop message before tkinter sees it.
+        if not self._dnd_ok:
+            try:
+                self._setup_win32_dnd()
+            except Exception:
+                pass
+
+        # Strategy 3: macOS native tk::mac::OpenDocument
         # This fires when files are dragged onto the window on macOS.
         # We must use tk.eval (not tk.call) so that $args is treated as a
         # literal Tcl variable reference in the proc body, not expanded now.
@@ -260,7 +274,7 @@ class App(tk.Tk):
                 )
                 self._dnd_ok = True
             except Exception as e:
-                print("Mac DnD setup error:", e)
+                dlog("Mac DnD setup error:", e)
 
         self.canvas.bind("<ButtonPress-1>",   self._press)
         self.canvas.bind("<B1-Motion>",        self._move)
@@ -298,6 +312,113 @@ class App(tk.Tk):
             path = path[1:-1]
         path = path.split("} {")[0]
         self._try_load(path.strip())
+
+    def _setup_win32_dnd(self):
+        """Schedule Win32 DnD setup after mainloop starts so tkinter's
+        own wndproc is installed first — we then subclass on top of it."""
+        self.after(100, self._install_win32_dnd)
+        self._dnd_ok = True
+
+    def _install_win32_dnd(self):
+        import ctypes, ctypes.wintypes
+        user32  = ctypes.windll.user32
+        shell32 = ctypes.windll.shell32
+
+        self.update_idletasks()
+
+        # Use the canvas HWND — tkinter's wndproc lives there and that's
+        # the widget the user actually drops onto.
+        hwnd = self.canvas.winfo_id()
+        dlog(f"installing on canvas hwnd={hwnd:#x}")
+
+        WM_DROPFILES     = 0x0233
+        WM_COPYGLOBALDATA = 0x0049
+        MSGFLT_ALLOW     = 1
+        GWL_WNDPROC      = -4
+
+        # Allow drops through UIPI filter
+        try:
+            user32.ChangeWindowMessageFilterEx(hwnd, WM_DROPFILES,     MSGFLT_ALLOW, None)
+            user32.ChangeWindowMessageFilterEx(hwnd, WM_COPYGLOBALDATA, MSGFLT_ALLOW, None)
+        except Exception as e:
+            dlog("ChangeWindowMessageFilterEx error:", e)
+
+        shell32.DragAcceptFiles(hwnd, True)
+        dlog(f"DragAcceptFiles done on {hwnd:#x}")
+
+        # Correct 64-bit-safe types
+        user32.GetWindowLongPtrW.restype  = ctypes.c_size_t
+        user32.GetWindowLongPtrW.argtypes = [
+            ctypes.wintypes.HWND, ctypes.c_int]
+        user32.SetWindowLongPtrW.restype  = ctypes.c_size_t
+        user32.SetWindowLongPtrW.argtypes = [
+            ctypes.wintypes.HWND, ctypes.c_int, ctypes.c_size_t]
+        user32.CallWindowProcW.restype    = ctypes.c_ssize_t
+        user32.CallWindowProcW.argtypes   = [
+            ctypes.c_size_t,          # lpPrevWndFunc (stored as unsigned)
+            ctypes.wintypes.HWND,
+            ctypes.wintypes.UINT,
+            ctypes.wintypes.WPARAM,
+            ctypes.wintypes.LPARAM]
+
+        WNDPROCTYPE = ctypes.WINFUNCTYPE(
+            ctypes.c_ssize_t,
+            ctypes.wintypes.HWND,
+            ctypes.wintypes.UINT,
+            ctypes.wintypes.WPARAM,
+            ctypes.wintypes.LPARAM,
+        )
+
+        original_proc = user32.GetWindowLongPtrW(hwnd, GWL_WNDPROC)
+        dlog(f"original_proc={original_proc:#x}")
+
+        shell32.DragQueryFileW.restype  = ctypes.wintypes.UINT
+        shell32.DragQueryFileW.argtypes = [
+            ctypes.c_size_t, ctypes.wintypes.UINT,
+            ctypes.c_wchar_p, ctypes.wintypes.UINT]
+        shell32.DragFinish.argtypes = [ctypes.c_size_t]
+
+        # We must acquire the GIL before touching Python objects because
+        # Windows may invoke the wndproc from a thread that doesn't hold it.
+        # Use pythonapi.PyGILState_Ensure/Release to bracket all Python calls.
+        PyGILState_Ensure  = ctypes.pythonapi.PyGILState_Ensure
+        PyGILState_Release = ctypes.pythonapi.PyGILState_Release
+        PyGILState_Ensure.restype  = ctypes.c_int
+        PyGILState_Release.argtypes = [ctypes.c_int]
+
+        # Shared buffer: wndproc writes path here, poll loop reads it.
+        # This avoids calling ANY Python code inside the wndproc itself.
+        import array
+        _pending = [None]  # list so closure can rebind
+
+        def wnd_proc(h, msg, wparam, lparam):
+            if msg == WM_DROPFILES:
+                gstate = PyGILState_Ensure()
+                try:
+                    hdrop = ctypes.c_size_t(wparam).value
+                    n = shell32.DragQueryFileW(hdrop, 0xFFFFFFFF, None, 0)
+                    if n > 0:
+                        buf = ctypes.create_unicode_buffer(4096)
+                        shell32.DragQueryFileW(hdrop, 0, buf, 4096)
+                        _pending[0] = buf.value
+                    shell32.DragFinish(hdrop)
+                finally:
+                    PyGILState_Release(gstate)
+                return 0
+            return user32.CallWindowProcW(original_proc, h, msg, wparam, lparam)
+
+        self._wnd_proc_ref = WNDPROCTYPE(wnd_proc)
+        proc_ptr = ctypes.cast(self._wnd_proc_ref, ctypes.c_void_p).value
+        result = user32.SetWindowLongPtrW(hwnd, GWL_WNDPROC, proc_ptr)
+        dlog(f"SetWindowLongPtrW result={result:#x}")
+
+        # Poll every 50 ms for a dropped path and load it on the main thread
+        def poll_drop():
+            if _pending[0] is not None:
+                path, _pending[0] = _pending[0], None
+                self._try_load(path)
+            self.after(50, poll_drop)
+        self.after(50, poll_drop)
 
     def _on_mac_drop(self, *args):
         # Tcl may pass args as one space-joined string or multiple tokens
@@ -712,17 +833,66 @@ class App(tk.Tk):
                     saved.append(fname)
                 except Exception as e:
                     errors.append(f"#{i+1}: {e}")
-            msg = f"Saved {len(saved)} crop(s) to:\n{sd}"
             if errors:
-                msg += "\n\nErrors:\n" + "\n".join(errors)
-            self.after(0, lambda: self._status(f"✓ Saved {len(saved)} crops → {sd}"))
+                self.after(0, lambda e=errors: self._toast(
+                    "⚠ " + "\n".join(e), color=ACCENT))
+            else:
+                self.after(0, lambda n=len(saved): self._toast(
+                    f"✓  {n} crop{'s' if n != 1 else ''} saved", color=GREEN))
+            self.after(0, lambda n=len(saved): self._status(
+                f"✓ Saved {n} crops → {sd}"))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    # ── status ────────────────────────────────────────────────────────────────
+    # ── status & toast ────────────────────────────────────────────────────────
 
     def _status(self, msg):
         self.status_var.set(msg)
+
+    def _toast(self, msg, color=GREEN, duration=2200):
+        """Briefly show a non-blocking overlay message on the canvas."""
+        # Remove any existing toast
+        if hasattr(self, '_toast_widgets'):
+            for w in self._toast_widgets:
+                try: w.destroy()
+                except Exception: pass
+
+        # Build the toast label
+        lbl = tk.Label(self.canvas, text=msg, bg=color, fg=TEXT,
+                       font=("Consolas", 11, "bold"),
+                       padx=18, pady=10, relief=tk.FLAT, bd=0,
+                       justify="center")
+        # Place it centred near the top of the canvas
+        lbl.place(relx=0.5, rely=0.08, anchor="center")
+        self._toast_widgets = [lbl]
+
+        # Fade out then destroy
+        def _fade(alpha=1.0):
+            if not self._toast_widgets or lbl not in self._toast_widgets:
+                return
+            # Interpolate colour toward the canvas background
+            def _blend(fg, bg, t):
+                fr,fg_,fb = int(fg[1:3],16),int(fg[3:5],16),int(fg[5:7],16)
+                br,bg_,bb = int(bg[1:3],16),int(bg[3:5],16),int(bg[5:7],16)
+                r = int(fr*t + br*(1-t))
+                g = int(fg_*t + bg_*(1-t))
+                b = int(fb*t + bb*(1-t))
+                return f"#{r:02x}{g:02x}{b:02x}"
+            if alpha <= 0:
+                for w in self._toast_widgets:
+                    try: w.destroy()
+                    except Exception: pass
+                self._toast_widgets = []
+                return
+            try:
+                lbl.configure(
+                    bg=_blend(color, "#0d0d1a", alpha),
+                    fg=_blend(TEXT,  "#0d0d1a", alpha))
+            except Exception:
+                return
+            self.after(30, lambda: _fade(alpha - 0.04))
+
+        self.after(duration, lambda: _fade(1.0))
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
