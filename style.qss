@@ -103,26 +103,56 @@ QLabel#dimmed { color: #8888aa; }
 QComboBox {
     background: #0f3460;
     color: #eaeaea;
-    border: none;
+    border: 1px solid #2a5090;
     border-radius: 3px;
-    padding: 3px 8px;
+    padding: 3px 28px 3px 8px;  /* right padding for arrow */
     font-family: Consolas, monospace;
     font-size: 9pt;
+    min-height: 22px;
+}
+QComboBox:hover { border-color: #e94560; }
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: right center;
+    width: 22px;
+    border-left: 1px solid #2a5090;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+    background: #1a4070;
+}
+QComboBox::drop-down:hover { background: #235090; }
+QComboBox::down-arrow {
+    width: 8px;
+    height: 8px;
+    image: none;
+    border-left:   4px solid transparent;
+    border-right:  4px solid transparent;
+    border-top:    6px solid #eaeaea;
 }
 QComboBox QAbstractItemView {
     background: #16213e;
     color: #eaeaea;
     selection-background-color: #e94560;
+    border: 1px solid #2a5090;
+    padding: 2px;
 }
-QComboBox::drop-down { border: none; }
 QLineEdit {
     background: #0f3460;
     color: #eaeaea;
-    border: none;
+    border: 1px solid #1a3a5a;
     border-radius: 3px;
     padding: 3px 8px;
     font-family: Consolas, monospace;
     font-size: 9pt;
+    selection-background-color: #e94560;
+}
+QLineEdit:focus {
+    border-color: #e94560;
+    background: #142050;
+}
+QLineEdit:read-only {
+    color: #8888aa;
+    border-color: #1a2a3a;
 }
 QListWidget {
     background: #16213e;

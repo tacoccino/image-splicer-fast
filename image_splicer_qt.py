@@ -629,6 +629,15 @@ class SidePanel(QWidget):
         self.list_widget = QListWidget()
         lay.addWidget(self.list_widget, stretch=1)
 
+        # Keep selections checkbox at the bottom of the panel
+        bot_sep = QFrame()
+        bot_sep.setFrameShape(QFrame.Shape.HLine)
+        bot_sep.setObjectName("accent_sep")
+        lay.addWidget(bot_sep)
+        self.keep_chk = QCheckBox("Keep selections")
+        self.keep_chk.setToolTip("Keep selections when loading a new image")
+        lay.addWidget(self.keep_chk)
+
     def refresh(self, sels, active_idx, on_delete):
         self.list_widget.clear()
         for i, s in enumerate(sels):
@@ -842,6 +851,9 @@ class MainWindow(QMainWindow):
 
         self.side = SidePanel()
         self.side.list_widget.itemClicked.connect(self._list_clicked)
+        self.side.keep_chk.setChecked(self.cfg.get("keep_sels", True))
+        self.side.keep_chk.stateChanged.connect(
+            lambda: self._persist("keep_sels", self.side.keep_chk.isChecked()))
         self._splitter.addWidget(self.side)
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 0)
@@ -879,12 +891,9 @@ class MainWindow(QMainWindow):
         self._btn_del      = tb_btn("⌫  Delete Sel",   "Delete selected  (Delete / Backspace)", "grey")
         self._btn_clear    = tb_btn("✕  Clear All",    "Clear all selections", "grey")
         self._btn_settings = tb_btn("⚙  Settings",    f"Settings ({m}+,)", "")
-
-        self.keep_chk = QCheckBox("Keep selections")
-        self.keep_chk.setToolTip("Keep selections when loading a new image")
-        self.keep_chk.setChecked(self.cfg.get("keep_sels", True))
-        self.keep_chk.stateChanged.connect(
-            lambda: self._persist("keep_sels", self.keep_chk.isChecked()))
+        self._btn_panel    = tb_btn("▐",               "Show/hide side panel", "")
+        self._btn_panel.setFixedWidth(38)
+        self._btn_panel.setToolTip("Show/hide selections panel")
 
         self._btn_fit  = tb_btn("⊡", f"Fit image to window  ({m}+0)", "")
         self._btn_zin  = tb_btn("+", f"Zoom in  ({m}+=)", "")
@@ -898,7 +907,7 @@ class MainWindow(QMainWindow):
 
         for w in (self._btn_open, self._btn_save, self._btn_open_dir,
                   sep(), self._btn_del, self._btn_clear,
-                  sep(), self.keep_chk, sep(), self._btn_settings):
+                  sep(), self._btn_settings):
             lay.addWidget(w)
 
         lay.addStretch()
@@ -906,7 +915,8 @@ class MainWindow(QMainWindow):
         zoom_lbl = QLabel("Zoom:")
         zoom_lbl.setObjectName("dimmed")
         for w in (zoom_lbl, self._zoom_lbl,
-                  self._btn_fit, self._btn_zin, self._btn_zout):
+                  self._btn_fit, self._btn_zin, self._btn_zout,
+                  sep(), self._btn_panel):
             lay.addWidget(w)
 
         self._btn_open.clicked.connect(self._open_file)
@@ -915,6 +925,7 @@ class MainWindow(QMainWindow):
         self._btn_del.clicked.connect(self.canvas.delete_active)
         self._btn_clear.clicked.connect(self.canvas.clear_all)
         self._btn_settings.clicked.connect(self._open_settings)
+        self._btn_panel.clicked.connect(self._toggle_panel)
         self._btn_fit.clicked.connect(self._zoom_fit)
         self._btn_zin.clicked.connect(self._zoom_in)
         self._btn_zout.clicked.connect(self._zoom_out)
@@ -958,6 +969,22 @@ class MainWindow(QMainWindow):
             self.canvas.scene.removeItem(self.canvas._rubber)
             self.canvas._rubber   = None
             self.canvas._drawing  = False
+
+    def _toggle_panel(self):
+        """Show or hide the selections side panel."""
+        visible = self.side.isVisible()
+        if visible:
+            # Remember width before hiding
+            self._panel_width = self._splitter.sizes()[1]
+            self.side.hide()
+            self._btn_panel.setToolTip("Show selections panel")
+        else:
+            self.side.show()
+            w = getattr(self, '_panel_width', 210)
+            sizes = self._splitter.sizes()
+            total = sum(sizes)
+            self._splitter.setSizes([total - w, w])
+            self._btn_panel.setToolTip("Hide selections panel")
 
     # ── status helpers ────────────────────────────────────────────────────────
 
@@ -1014,7 +1041,7 @@ class MainWindow(QMainWindow):
 
         # decide what to do with existing selections
         restore = []
-        if self.canvas.sels and self.canvas.pil_img and self.keep_chk.isChecked():
+        if self.canvas.sels and self.canvas.pil_img and self.side.keep_chk.isChecked():
             for s in self.canvas.sels:
                 if s.fits_in(new_img.width, new_img.height):
                     restore.append(s.rect())
