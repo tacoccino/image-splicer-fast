@@ -166,7 +166,11 @@ class SelItem(QGraphicsRectItem):
         self.setRect(scene_rect)
         self.set_active(self._active)
         self._label.setPlainText(f"#{self.idx+1}")
-        self._label.setPos(scene_rect.topLeft() + QPointF(4, 2))
+        # Scale font so it appears ~14px on screen regardless of zoom
+        zoom = max(0.1, self.canvas.zoom)
+        pt = max(7, int(14 / zoom))
+        self._label.setFont(QFont("Consolas", pt, QFont.Weight.Bold))
+        self._label.setPos(scene_rect.topLeft() + QPointF(6 / zoom, 4 / zoom))
         self._update_handles()
 
     def _update_handles(self):
@@ -236,8 +240,9 @@ class SelItem(QGraphicsRectItem):
         if self._drag_mode is None:
             return
         sp   = e.scenePos()
-        dx   = (sp.x() - self._drag_start.x()) / self.canvas.zoom
-        dy   = (sp.y() - self._drag_start.y()) / self.canvas.zoom
+        # scenePos() is already in image-space; no zoom correction needed
+        dx   = sp.x() - self._drag_start.x()
+        dy   = sp.y() - self._drag_start.y()
         x1o, y1o, x2o, y2o = self._orig
         p = self._drag_mode
         s = self.sel
@@ -604,43 +609,25 @@ class Toast(QLabel):
 class SidePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(210)
-        self.setStyleSheet("background: #16213e;")
+        self.setMinimumWidth(160)
+        self.setObjectName("sidepanel")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 12, 8, 12)
         lay.setSpacing(6)
 
         title = QLabel("SELECTIONS")
-        title.setStyleSheet("color: #e94560; font-size: 13pt; font-weight: bold;"
-                            "font-family: Consolas, monospace;")
+        title.setObjectName("panel_title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(title)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #e94560;")
+        sep.setObjectName("accent_sep")
         lay.addWidget(sep)
 
         self.list_widget = QListWidget()
         lay.addWidget(self.list_widget, stretch=1)
-
-        # prefix
-        lay.addWidget(self._lbl("Filename prefix:"))
-        self.prefix_edit = QLineEdit("crop")
-        lay.addWidget(self.prefix_edit)
-
-        # format
-        lay.addWidget(self._lbl("Format:"))
-        self.fmt_combo = QComboBox()
-        self.fmt_combo.addItems(["PNG", "JPEG", "WEBP", "BMP", "TIFF"])
-        lay.addWidget(self.fmt_combo)
-
-    @staticmethod
-    def _lbl(text):
-        l = QLabel(text)
-        l.setObjectName("dimmed")
-        return l
 
     def refresh(self, sels, active_idx, on_delete):
         self.list_widget.clear()
@@ -651,6 +638,152 @@ class SidePanel(QWidget):
             self.list_widget.addItem(item)
             if i == active_idx:
                 item.setSelected(True)
+
+
+# ── settings dialog ──────────────────────────────────────────────────────────
+
+class SettingsDialog(QtWidgets.QDialog):
+    def __init__(self, cfg: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(480)
+        self.setModal(True)
+        self.result_cfg = dict(cfg)  # copy we'll mutate
+
+        lay = QVBoxLayout(self)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 20, 24, 20)
+
+        # ── Save location ──────────────────────────────────────────────────
+        lay.addWidget(self._section("Save Location"))
+        loc_row = QHBoxLayout()
+        self._save_edit = QLineEdit(cfg.get("save_dir", ""))
+        self._save_edit.setPlaceholderText("Choose a folder…")
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setObjectName("grey")
+        browse_btn.setFixedWidth(90)
+        browse_btn.clicked.connect(self._browse)
+        loc_row.addWidget(self._save_edit)
+        loc_row.addWidget(browse_btn)
+        lay.addLayout(loc_row)
+
+        # ── Filename prefix ────────────────────────────────────────────────
+        lay.addWidget(self._section("Filename Prefix"))
+        self._prefix_edit = QLineEdit(cfg.get("prefix", "crop"))
+        lay.addWidget(self._prefix_edit)
+
+        # ── Format + JPEG quality ─────────────────────────────────────────
+        lay.addWidget(self._section("Output Format"))
+        fmt_row = QHBoxLayout()
+        self._fmt_combo = QComboBox()
+        self._fmt_combo.addItems(["PNG", "JPEG", "WEBP", "BMP", "TIFF"])
+        self._fmt_combo.setCurrentText(cfg.get("format", "PNG"))
+        self._fmt_combo.currentTextChanged.connect(self._on_fmt_change)
+        fmt_row.addWidget(self._fmt_combo)
+        fmt_row.addStretch()
+        lay.addLayout(fmt_row)
+
+        # JPEG quality row (shown only when JPEG selected)
+        self._jpeg_row = QWidget()
+        jpeg_lay = QHBoxLayout(self._jpeg_row)
+        jpeg_lay.setContentsMargins(0, 0, 0, 0)
+        jpeg_lay.addWidget(QLabel("JPEG quality:"))
+        self._quality_spin = QtWidgets.QSpinBox()
+        self._quality_spin.setRange(1, 100)
+        self._quality_spin.setValue(cfg.get("jpeg_quality", 90))
+        self._quality_spin.setFixedWidth(70)
+        self._quality_spin.setStyleSheet(
+            "QSpinBox { background:#0f3460; color:#eaeaea; border:none; "
+            "border-radius:3px; padding:3px 6px; font-family:Consolas; }"
+            "QSpinBox::up-button, QSpinBox::down-button { width:18px; }")
+        jpeg_lay.addWidget(self._quality_spin)
+        jpeg_lay.addStretch()
+        lay.addWidget(self._jpeg_row)
+        self._on_fmt_change(self._fmt_combo.currentText())
+
+        # ── Theme ──────────────────────────────────────────────────────────
+        lay.addWidget(self._section("Theme"))
+        theme_row = QHBoxLayout()
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItems(["Dark", "Light"])
+        self._theme_combo.setCurrentText(
+            "Light" if cfg.get("theme", "dark") == "light" else "Dark")
+        theme_row.addWidget(self._theme_combo)
+        theme_row.addStretch()
+        lay.addLayout(theme_row)
+
+        # ── Accent colour ──────────────────────────────────────────────────
+        lay.addWidget(self._section("Accent Colour"))
+        accent_row = QHBoxLayout()
+        self._accent_preview = QPushButton()
+        self._accent_preview.setFixedSize(32, 32)
+        self._accent_preview.setObjectName("accent_swatch")
+        self._accent_color = cfg.get("accent", "#e94560")
+        self._update_swatch(self._accent_preview, self._accent_color)
+        self._accent_preview.clicked.connect(self._pick_accent)
+        self._accent_lbl = QLabel(self._accent_color)
+        self._accent_lbl.setObjectName("dimmed")
+        accent_row.addWidget(self._accent_preview)
+        accent_row.addWidget(self._accent_lbl)
+        accent_row.addStretch()
+        lay.addLayout(accent_row)
+
+        # ── Button row ─────────────────────────────────────────────────────
+        lay.addStretch()
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("grey")
+        ok_btn = QPushButton("Save")
+        ok_btn.setObjectName("green")
+        ok_btn.setDefault(True)
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn.clicked.connect(self._accept)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        lay.addLayout(btn_row)
+
+    # ── helpers ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _section(text):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            "color:#e94560; font-family:Consolas,monospace; "
+            "font-size:9pt; font-weight:bold;")
+        return lbl
+
+    def _on_fmt_change(self, fmt):
+        self._jpeg_row.setVisible(fmt == "JPEG")
+
+    def _browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Choose save folder")
+        if d:
+            self._save_edit.setText(d)
+
+    def _pick_accent(self):
+        color = QtWidgets.QColorDialog.getColor(
+            QColor(self._accent_color), self, "Choose Accent Colour")
+        if color.isValid():
+            self._accent_color = color.name()
+            self._accent_lbl.setText(self._accent_color)
+            self._update_swatch(self._accent_preview, self._accent_color)
+
+    @staticmethod
+    def _update_swatch(btn, color):
+        btn.setStyleSheet(
+            f"QPushButton {{ background:{color}; border-radius:4px; "
+            f"border:1px solid rgba(255,255,255,0.2); }}"
+            f"QPushButton:hover {{ background:{color}; }}")
+
+    def _accept(self):
+        self.result_cfg["save_dir"]     = self._save_edit.text().strip()
+        self.result_cfg["prefix"]       = self._prefix_edit.text().strip() or "crop"
+        self.result_cfg["format"]       = self._fmt_combo.currentText()
+        self.result_cfg["jpeg_quality"] = self._quality_spin.value()
+        self.result_cfg["theme"]        = self._theme_combo.currentText().lower()
+        self.result_cfg["accent"]       = self._accent_color
+        self.accept()
 
 
 # ── toolbar button helper ─────────────────────────────────────────────────────
@@ -677,6 +810,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_shortcuts()
+        self._apply_theme()
         self.statusBar().showMessage(
             "Open an image to get started — or drag & drop a file onto the window.")
 
@@ -702,23 +836,18 @@ class MainWindow(QMainWindow):
         root_lay.addWidget(tb)
 
         # Splitter: canvas | side panel
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(2)
-        splitter.addWidget(self.canvas)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setHandleWidth(4)
+        self._splitter.addWidget(self.canvas)
 
         self.side = SidePanel()
         self.side.list_widget.itemClicked.connect(self._list_clicked)
-        self.side.prefix_edit.setText(self.cfg.get("prefix", "crop"))
-        self.side.prefix_edit.textChanged.connect(
-            lambda t: self._persist("prefix", t))
-        self.side.fmt_combo.setCurrentText(self.cfg.get("format", "PNG"))
-        self.side.fmt_combo.currentTextChanged.connect(
-            lambda t: self._persist("format", t))
-        splitter.addWidget(self.side)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 0)
+        self._splitter.addWidget(self.side)
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 0)
+        self._splitter.setSizes([850, 210])
 
-        root_lay.addWidget(splitter, stretch=1)
+        root_lay.addWidget(self._splitter, stretch=1)
 
         # Status bar
         self.setStatusBar(QStatusBar())
@@ -731,7 +860,7 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self):
         tb = QWidget()
-        tb.setStyleSheet("background: #16213e;")
+        tb.setObjectName("toolbar")
         lay = QHBoxLayout(tb)
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(4)
@@ -739,24 +868,27 @@ class MainWindow(QMainWindow):
         def sep():
             f = QFrame()
             f.setFrameShape(QFrame.Shape.VLine)
-            f.setStyleSheet("color: #e94560;")
+            f.setObjectName("accent_sep")
+            f.setFixedWidth(2)
             return f
 
         m = self._mod
-        self._btn_open  = tb_btn("⊞  Open Image",    f"Open image ({m}+O)", "accent")
-        self._btn_save_loc = tb_btn("⌂  Save Location", "", "")
-        self._btn_save  = tb_btn("✦  Save Crops",    f"Save all crops ({m}+S)", "green")
-        self._btn_del   = tb_btn("⌫  Delete Sel",    "Delete selected  (Delete / Backspace)", "grey")
-        self._btn_clear = tb_btn("✕  Clear All",     "Clear all selections", "grey")
-        self.keep_chk   = QCheckBox("Keep selections")
+        self._btn_open     = tb_btn("⊞  Open Image",   f"Open image ({m}+O)", "accent")
+        self._btn_save     = tb_btn("✦  Save Crops",   f"Save all crops ({m}+S)", "green")
+        self._btn_open_dir = tb_btn("📂  Open Folder",  "Open save location folder", "grey")
+        self._btn_del      = tb_btn("⌫  Delete Sel",   "Delete selected  (Delete / Backspace)", "grey")
+        self._btn_clear    = tb_btn("✕  Clear All",    "Clear all selections", "grey")
+        self._btn_settings = tb_btn("⚙  Settings",    f"Settings ({m}+,)", "")
+
+        self.keep_chk = QCheckBox("Keep selections")
         self.keep_chk.setToolTip("Keep selections when loading a new image")
         self.keep_chk.setChecked(self.cfg.get("keep_sels", True))
         self.keep_chk.stateChanged.connect(
             lambda: self._persist("keep_sels", self.keep_chk.isChecked()))
 
-        self._btn_fit   = tb_btn("⊡", f"Fit image to window  ({m}+0)", "")
-        self._btn_zin   = tb_btn("+", f"Zoom in  ({m}+=)", "")
-        self._btn_zout  = tb_btn("−", f"Zoom out  ({m}+−)", "")
+        self._btn_fit  = tb_btn("⊡", f"Fit image to window  ({m}+0)", "")
+        self._btn_zin  = tb_btn("+", f"Zoom in  ({m}+=)", "")
+        self._btn_zout = tb_btn("−", f"Zoom out  ({m}+−)", "")
         for b in (self._btn_fit, self._btn_zin, self._btn_zout):
             b.setFixedWidth(38)
 
@@ -764,11 +896,9 @@ class MainWindow(QMainWindow):
         self._zoom_lbl.setFixedWidth(48)
         self._zoom_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._update_save_tip()
-
-        for w in (self._btn_open, self._btn_save_loc, self._btn_save,
+        for w in (self._btn_open, self._btn_save, self._btn_open_dir,
                   sep(), self._btn_del, self._btn_clear,
-                  sep(), self.keep_chk):
+                  sep(), self.keep_chk, sep(), self._btn_settings):
             lay.addWidget(w)
 
         lay.addStretch()
@@ -779,12 +909,12 @@ class MainWindow(QMainWindow):
                   self._btn_fit, self._btn_zin, self._btn_zout):
             lay.addWidget(w)
 
-        # connect
         self._btn_open.clicked.connect(self._open_file)
-        self._btn_save_loc.clicked.connect(self._set_save)
         self._btn_save.clicked.connect(self._save_crops)
+        self._btn_open_dir.clicked.connect(self._open_save_dir)
         self._btn_del.clicked.connect(self.canvas.delete_active)
         self._btn_clear.clicked.connect(self.canvas.clear_all)
+        self._btn_settings.clicked.connect(self._open_settings)
         self._btn_fit.clicked.connect(self._zoom_fit)
         self._btn_zin.clicked.connect(self._zoom_in)
         self._btn_zout.clicked.connect(self._zoom_out)
@@ -799,6 +929,7 @@ class MainWindow(QMainWindow):
 
         sc(f"{m}+O",     self._open_file)
         sc(f"{m}+S",     self._save_crops)
+        sc(f"{m}+,",     self._open_settings)
         sc(f"{m}+Z",     self.canvas.delete_last)
         sc(f"{m}+=",     self._zoom_in)
         sc(f"{m}++",     self._zoom_in)
@@ -904,13 +1035,57 @@ class MainWindow(QMainWindow):
 
     # ── save ──────────────────────────────────────────────────────────────────
 
-    def _set_save(self):
-        d = QFileDialog.getExistingDirectory(self, "Choose save folder")
-        if d:
-            self.cfg["save_dir"] = d
+    def _open_save_dir(self):
+        sd = self.cfg.get("save_dir", "").strip()
+        if not sd or not os.path.isdir(sd):
+            QMessageBox.warning(self, "No Save Location",
+                "Set a save location in Settings first.")
+            return
+        # QDesktopServices is the most reliable cross-platform way
+        QtGui.QDesktopServices.openUrl(
+            QtCore.QUrl.fromLocalFile(sd))
+
+    def _open_settings(self):
+        dlg = SettingsDialog(self.cfg, self)
+        if dlg.exec():
+            self.cfg = dlg.result_cfg
             save_cfg(self.cfg)
-            self._update_save_tip()
-            self._status(f"Save location: {d}")
+            self._apply_theme()
+            self._status("Settings saved.")
+
+    def _apply_theme(self):
+        """Reload QSS with current accent colour and theme."""
+        accent  = self.cfg.get("accent",  "#e94560")
+        dark    = self.cfg.get("theme", "dark") == "dark"
+        bg      = "#1a1a2e" if dark else "#f0f2f5"
+        panel   = "#16213e" if dark else "#dde1ea"
+        canvas_bg = "#0d0d1a" if dark else "#c8ccd8"
+        btn_base  = "#0f3460" if dark else "#c0c8d8"
+        btn_top   = "#1a4070" if dark else "#d0d8e8"
+        text    = "#eaeaea" if dark else "#1a1a2e"
+        textdim = "#8888aa" if dark else "#555577"
+        qss = _load_qss()
+        # Replace all theme tokens — order matters (longer/specific first)
+        qss = (qss
+            .replace("#1a4070", btn_top)
+            .replace("#0f3460", btn_base)
+            .replace("#16213e", panel)
+            .replace("#1a1a2e", bg)
+            .replace("#0d0d1a", canvas_bg)
+            .replace("#eaeaea", text)
+            .replace("#8888aa", textdim)
+            .replace("#e94560", accent)
+        )
+        QApplication.instance().setStyleSheet(qss)
+        # Update selection/handle colours to match accent
+        global C_SEL, C_SEL_ACT, C_HANDLE
+        C_SEL     = QColor(accent)
+        C_SEL_ACT = QColor(accent).lighter(130)
+        # Redraw existing selections with new colour
+        if hasattr(self, 'canvas'):
+            for item in self.canvas.sel_items:
+                item.set_active(item._active)
+                item._sync()
 
     def _persist(self, key, val):
         self.cfg[key] = val
@@ -931,9 +1106,10 @@ class MainWindow(QMainWindow):
 
         import threading
         def worker():
-            prefix = self.side.prefix_edit.text() or "crop"
-            fmt    = self.side.fmt_combo.currentText()
-            ext    = "jpg" if fmt == "JPEG" else fmt.lower()
+            prefix  = self.cfg.get("prefix", "crop") or "crop"
+            fmt     = self.cfg.get("format", "PNG")
+            quality = self.cfg.get("jpeg_quality", 90)
+            ext     = "jpg" if fmt == "JPEG" else fmt.lower()
             saved, errors = [], []
             for i, s in enumerate(self.canvas.sels):
                 ix1,iy1,ix2,iy2 = (max(0,int(s.ix1)), max(0,int(s.iy1)),
@@ -949,7 +1125,7 @@ class MainWindow(QMainWindow):
                     fname = f"{base}_{n}.{ext}"; n += 1
                 try:
                     crop.save(os.path.join(sd, fname), fmt,
-                              **({"quality": 95} if fmt == "JPEG" else {}))
+                              **({"quality": quality} if fmt == "JPEG" else {}))
                     saved.append(fname)
                 except Exception as e:
                     errors.append(f"#{i+1}: {e}")

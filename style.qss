@@ -159,3 +159,43 @@ QGraphicsView {
     background: #0d0d1a;
     border: none;
 }
+
+QDialog {
+    background: #1a1a2e;
+}
+QDialog QLabel {
+    color: #eaeaea;
+    font-family: Consolas, monospace;
+    font-size: 9pt;
+}
+QSpinBox {
+    background: #0f3460;
+    color: #eaeaea;
+    border: none;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-family: Consolas, monospace;
+    font-size: 9pt;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 18px;
+    background: #1a4070;
+    border: none;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #235090;
+}
+QColorDialog {
+    background: #1a1a2e;
+}
+
+/* Named elements — themed via object names so _apply_theme token replacement works */
+QWidget#toolbar   { background: #16213e; border-bottom: 2px solid #0d0d1a; }
+QWidget#sidepanel { background: #16213e; }
+QLabel#panel_title {
+    color: #e94560;
+    font-size: 13pt;
+    font-weight: bold;
+    font-family: Consolas, monospace;
+}
+QFrame#accent_sep { color: #e94560; background: #e94560; }
