@@ -150,11 +150,14 @@ class SelItem(QGraphicsRectItem):
     # ── Qt event handlers ─────────────────────────────────────────────────────
 
     def hoverMoveEvent(self, e):
+        part = self._hit_part(e.pos())
         self.setCursor(QCursor(self._CURSORS.get(
-            self._hit_part(e.pos()), Qt.CursorShape.SizeAllCursor)))
+            part, Qt.CursorShape.SizeAllCursor)))
+        self.canvas.on_sel_hover(self.idx, part)
 
     def hoverLeaveEvent(self, e):
         self.unsetCursor()
+        self.canvas.on_sel_leave()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -216,6 +219,34 @@ class SelItem(QGraphicsRectItem):
             elif p == "B":    s.iy2 = y2o+dy
             self._sync()
             self.canvas.refresh_list()
+        e.accept()
+
+    def contextMenuEvent(self, e):
+        """Right-click context menu for a selection."""
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu()
+        menu.setStyleSheet(
+            "QMenu { background: #16213e; color: #eaeaea; border: 1px solid #8888aa; "
+            "font-family: 'Inter', sans-serif; font-size: 9pt; padding: 4px; }"
+            "QMenu::item { padding: 6px 20px; border-radius: 3px; }"
+            "QMenu::item:selected { background: #e94560; }"
+            "QMenu::separator { height: 1px; background: #8888aa; margin: 3px 8px; }")
+        act_dup    = menu.addAction("Duplicate")
+        act_dup.setToolTip("Alt+drag")
+        menu.addSeparator()
+        act_del    = menu.addAction("Delete")
+        chosen = menu.exec(e.screenPos())
+        if chosen == act_dup:
+            # Duplicate in place with a small offset so it's visible
+            s = self.sel
+            offset = 20
+            new_sel = self.canvas.add_sel(
+                s.ix1 + offset, s.iy1 + offset,
+                s.ix2 + offset, s.iy2 + offset)
+            new_sel.name = s.name
+            self.canvas.sel_items[-1]._sync()
+        elif chosen == act_del:
+            self.canvas.delete_sel(self.idx)
         e.accept()
 
     def mouseReleaseEvent(self, e):
@@ -280,9 +311,11 @@ class Canvas(QGraphicsView):
         self._pan_start = None
 
         # Callbacks — wire up in MainWindow
-        self.on_load:     callable | None = None
-        self.on_coords:   callable | None = None
-        self.refresh_list: callable       = lambda: None
+        self.on_load:      callable | None = None
+        self.on_coords:    callable | None = None
+        self.refresh_list: callable        = lambda: None
+        self.on_sel_hover: callable        = lambda idx, part: None
+        self.on_sel_leave: callable        = lambda: None
 
     # ── image ─────────────────────────────────────────────────────────────────
 

@@ -120,6 +120,8 @@ class MainWindow(QMainWindow):
         self.canvas.on_load      = self._try_load
         self.canvas.on_coords    = self._update_coords
         self.canvas.refresh_list = self._refresh_list
+        self.canvas.on_sel_hover = self._on_sel_hover
+        self.canvas.on_sel_leave = self._on_sel_leave
 
         root.addWidget(self._build_toolbar())
 
@@ -302,6 +304,19 @@ class MainWindow(QMainWindow):
 
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg)
+
+    def _on_sel_hover(self, idx: int, part: str) -> None:
+        """Show contextual hints in the status bar when hovering a selection."""
+        m = self._mod
+        if part == "move":
+            hint = f"Drag to move  ·  {m}+Alt+drag to duplicate  ·  Right-click for more"
+        else:
+            hint = "Drag edge/corner to resize"
+        self.statusBar().showMessage(hint)
+
+    def _on_sel_leave(self) -> None:
+        """Restore normal status when cursor leaves a selection."""
+        self._refresh_list()
 
     # ── selections list ───────────────────────────────────────────────────────
 
