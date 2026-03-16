@@ -7,7 +7,8 @@ SettingsDialog  — modal settings window (save location, format, theme, accent)
 """
 
 from PyQt6 import QtWidgets
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtCore import QSize
 import theme as th
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QLineEdit, QPushButton, QComboBox, QWidget,
@@ -144,6 +145,11 @@ class SettingsDialog(QDialog):
         lay.addWidget(self._section("Accent Colour"))
         accent_row = QHBoxLayout()
         self._accent_color = cfg.get("accent", "#e94560")
+        # Resolve the theme's default accent so we can show a reset button
+        theme_name = cfg.get("theme", "Dark")
+        if theme_name in ("dark", "light"): theme_name = theme_name.title()
+        default_tokens = th.load_theme_tokens(theme_name, "#e94560")
+        self._default_accent = default_tokens["accent"]
         self._accent_swatch = QPushButton()
         self._accent_swatch.setFixedSize(32, 32)
         self._accent_swatch.setObjectName("accent_swatch")
@@ -151,8 +157,25 @@ class SettingsDialog(QDialog):
         self._accent_swatch.clicked.connect(self._pick_accent)
         self._accent_lbl = QLabel(self._accent_color)
         self._accent_lbl.setObjectName("dimmed")
+        # Reset button — only visible when accent differs from theme default
+        self._accent_reset = QPushButton()
+        self._accent_reset.setFixedSize(28, 28)
+        self._accent_reset.setObjectName("grey")
+        self._accent_reset.setToolTip(
+            f"Reset to theme default ({self._default_accent})")
+        reset_ico = self._load_reset_icon()
+        if reset_ico:
+            self._accent_reset.setIcon(reset_ico)
+            self._accent_reset.setIconSize(QSize(14, 14))
+        else:
+            self._accent_reset.setText("↺")
+        self._accent_reset.clicked.connect(self._reset_accent)
+        self._accent_reset.setVisible(
+            self._accent_color.lower() != self._default_accent.lower())
         accent_row.addWidget(self._accent_swatch)
         accent_row.addWidget(self._accent_lbl)
+        accent_row.addSpacing(6)
+        accent_row.addWidget(self._accent_reset)
         accent_row.addStretch()
         lay.addLayout(accent_row)
 
@@ -219,6 +242,8 @@ class SettingsDialog(QDialog):
             self._accent_color = color.name()
             self._accent_lbl.setText(self._accent_color)
             self._update_swatch(self._accent_swatch, self._accent_color)
+            self._accent_reset.setVisible(
+                self._accent_color.lower() != self._default_accent.lower())
 
     @staticmethod
     def _update_swatch(btn: QPushButton, color: str) -> None:
@@ -258,6 +283,21 @@ class SettingsDialog(QDialog):
         folder.mkdir(parents=True, exist_ok=True)
         QtGui.QDesktopServices.openUrl(
             QtCore.QUrl.fromLocalFile(str(folder)))
+
+    def _load_reset_icon(self) -> QIcon | None:
+        """Load the reset icon from the theme-appropriate icons/ folder."""
+        variant = th.icon_variant(self.result_cfg.get("theme", "Dark"))
+        path = th.resource_dir() / "icons" / variant / "reset.png"
+        if path.exists():
+            return QIcon(str(path))
+        return None
+
+    def _reset_accent(self) -> None:
+        """Reset accent to the theme's default and hide the reset button."""
+        self._accent_color = self._default_accent
+        self._accent_lbl.setText(self._accent_color)
+        self._update_swatch(self._accent_swatch, self._accent_color)
+        self._accent_reset.setVisible(False)
 
     def _accept(self) -> None:
         self.result_cfg["save_dir"]     = self._save_edit.text().strip()
