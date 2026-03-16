@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
         self._btn_fit   = ibtn("⊡", f"Fit image to window  ({m}+0)", icon_name="fit")
         self._btn_zin   = ibtn("+", f"Zoom in  ({m}+=)",  icon_name="zoom_in")
         self._btn_zout  = ibtn("−", f"Zoom out  ({m}+−)", icon_name="zoom_out")
-        self._btn_panel = ibtn("▐", "Show/hide selections panel")
+        self._btn_panel = ibtn("▐", f"Show/hide selections panel  ({self._mod}+\\)")
         for b in (self._btn_fit, self._btn_zin, self._btn_zout, self._btn_panel):
             b.setFixedWidth(38)
 
@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
         return tb
 
     def _build_shortcuts(self) -> None:
-        m = "Meta" if self._mac else "Ctrl"
+        m = "Ctrl"  # Qt maps Ctrl→Cmd on macOS automatically
 
         def sc(key, fn):
             QShortcut(QKeySequence(key), self).activated.connect(fn)
@@ -242,8 +242,8 @@ class MainWindow(QMainWindow):
         sc("Delete",    self.canvas.delete_active)
         sc("Backspace", self.canvas.delete_active)
         sc("Escape",    self._cancel_draw)
-        # Note: on macOS Qt maps Ctrl→Cmd and Meta→Control for non-standard keys
-        sc("Ctrl+T",    self._toggle_overlay)
+        sc(f"{m}+T",    self._toggle_overlay)
+        sc(f"{m}+\\",  self._toggle_panel)
 
     # ── zoom ──────────────────────────────────────────────────────────────────
 
