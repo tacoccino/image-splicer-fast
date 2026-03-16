@@ -1,0 +1,13 @@
+{
+  "name": "Midnight",
+  "base": "dark",
+  "surface_hi": "#1a4070",
+  "surface":    "#0f3460",
+  "panel":      "#16213e",
+  "bg":         "#1a1a2e",
+  "canvas":     "#0d0d1a",
+  "text":       "#eaeaea",
+  "text_white": "#ffffff",
+  "textdim":    "#8888aa",
+  "accent":     "#e94560"
+}

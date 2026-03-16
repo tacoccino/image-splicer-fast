@@ -42,6 +42,9 @@ set ADD_DATA=--add-data "%SCRIPT_DIR%style.qss;."
 if exist "%SCRIPT_DIR%icons" (
     set ADD_DATA=!ADD_DATA! --add-data "%SCRIPT_DIR%icons;icons"
 )
+if exist "%SCRIPT_DIR%image_splicer\themes" (
+    set ADD_DATA=!ADD_DATA! --add-data "%SCRIPT_DIR%image_splicer\themes;themes"
+)
 
 REM ── Build — onedir (recommended: faster startup, easier to update) ───────────
 echo =^> Building onedir version...

@@ -199,6 +199,8 @@ QListWidget::item:selected      { background: #0f3460; }
 QListWidget::item:hover         { background: #1a4070; }
 
 QScrollArea { background: #16213e; border: none; }
+QScrollArea > QWidget { background: #16213e; }  /* viewport */
+QScrollArea > QWidget > QWidget { background: #16213e; }  /* container */
 QScrollBar:vertical   { background: #16213e; width: 6px; border: none; }
 QScrollBar:horizontal { background: #16213e; height: 6px; border: none; }
 QScrollBar::handle:vertical, QScrollBar::handle:horizontal {

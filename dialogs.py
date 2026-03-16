@@ -8,6 +8,7 @@ SettingsDialog  — modal settings window (save location, format, theme, accent)
 
 from PyQt6 import QtWidgets
 from PyQt6.QtGui import QColor
+import theme as th
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QLineEdit, QPushButton, QComboBox, QWidget,
                               QFileDialog, QSlider)
@@ -75,12 +76,28 @@ class SettingsDialog(QDialog):
         lay.addWidget(self._section("Theme"))
         theme_row = QHBoxLayout()
         self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Dark", "Light"])
-        self._theme_combo.setCurrentText(
-            "Light" if cfg.get("theme", "dark") == "light" else "Dark")
+        available = th.list_themes()
+        self._theme_names = [name for name, _ in available]
+        self._theme_combo.addItems(self._theme_names)
+        # Match saved theme name; normalise legacy 'dark'/'light' values
+        saved = cfg.get("theme", "Dark")
+        if saved == "dark": saved = "Dark"
+        if saved == "light": saved = "Light"
+        if saved in self._theme_names:
+            self._theme_combo.setCurrentText(saved)
         theme_row.addWidget(self._theme_combo)
         theme_row.addStretch()
         lay.addLayout(theme_row)
+        themes_row = QHBoxLayout()
+        hint = QLabel("Add .json files to the themes/ folder to create custom themes")
+        hint.setObjectName("dimmed")
+        hint.setWordWrap(True)
+        themes_row.addWidget(hint, stretch=1)
+        open_themes_btn = QPushButton("Open Themes Folder")
+        open_themes_btn.setObjectName("grey")
+        open_themes_btn.clicked.connect(self._open_themes_folder)
+        themes_row.addWidget(open_themes_btn)
+        lay.addLayout(themes_row)
 
         # ── Font scale ────────────────────────────────────────────────────
         lay.addWidget(self._section("Font Scale"))
@@ -234,11 +251,19 @@ class SettingsDialog(QDialog):
             self._scale_slider.blockSignals(False)
         self._scale_lbl.setText(f"{snapped / 100:.1f}×")
 
+    def _open_themes_folder(self) -> None:
+        import os
+        from PyQt6 import QtCore, QtGui
+        folder = th.themes_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        QtGui.QDesktopServices.openUrl(
+            QtCore.QUrl.fromLocalFile(str(folder)))
+
     def _accept(self) -> None:
         self.result_cfg["save_dir"]     = self._save_edit.text().strip()
         self.result_cfg["format"]       = self._fmt_combo.currentText()
         self.result_cfg["jpeg_quality"] = self._quality_spin.value()
-        self.result_cfg["theme"]        = self._theme_combo.currentText().lower()
+        self.result_cfg["theme"]        = self._theme_combo.currentText()
         self.result_cfg["accent"]          = self._accent_color
         self.result_cfg["font_scale"]       = self._scale_slider.value() / 100
         self.result_cfg["overlay_color"]   = self._overlay_color

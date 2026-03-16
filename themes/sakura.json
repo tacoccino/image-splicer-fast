@@ -1,0 +1,13 @@
+{
+  "name": "Sakura",
+  "base": "light",
+  "surface_hi": "#f2d6e0",
+  "surface":    "#e8c4d4",
+  "panel":      "#f7e4ec",
+  "bg":         "#fdf0f5",
+  "canvas":     "#e8d0dc",
+  "text":       "#2d1a22",
+  "text_white": "#2d1a22",
+  "textdim":    "#8a6070",
+  "accent":     "#d4407a"
+}

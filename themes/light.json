@@ -1,0 +1,13 @@
+{
+  "name": "Light",
+  "base": "light",
+  "surface_hi": "#cad4e8",
+  "surface":    "#b8c4d8",
+  "panel":      "#dde1ea",
+  "bg":         "#f0f2f5",
+  "canvas":     "#c0c4d0",
+  "text":       "#1a1a2e",
+  "text_white": "#1a1a2e",
+  "textdim":    "#555577",
+  "accent":     "#e94560"
+}

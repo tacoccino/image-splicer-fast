@@ -1,0 +1,13 @@
+{
+  "name": "Bright",
+  "base": "light",
+  "surface_hi": "#e8edf5",
+  "surface":    "#dce3ef",
+  "panel":      "#eef1f6",
+  "bg":         "#ffffff",
+  "canvas":     "#d8dde8",
+  "text":       "#111318",
+  "text_white": "#111318",
+  "textdim":    "#666980",
+  "accent":     "#e94560"
+}

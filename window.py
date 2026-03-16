@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         lay.setSpacing(4)
 
         m = self._mod
-        t = self.cfg.get("theme", "dark")
+        t = th.icon_variant(self.cfg.get("theme", "Dark"))
 
         # Track icon names so we can swap them when the theme changes
         self._icon_btns: dict = {}  # QPushButton → icon_name
@@ -274,7 +274,7 @@ class MainWindow(QMainWindow):
         self._update_overlay_icon(active)
 
     def _update_overlay_icon(self, active: bool) -> None:
-        t    = self.cfg.get("theme", "dark")
+        t = th.icon_variant(self.cfg.get("theme", "Dark"))
         name = "overlay_on" if active else "overlay"
         ico  = _icon(name, t)
         if ico:
@@ -399,6 +399,10 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self.cfg, self)
+        # Explicitly apply the app stylesheet to the dialog — on Windows,
+        # top-level dialogs don't always inherit QApplication.styleSheet()
+        from PyQt6.QtWidgets import QApplication
+        dlg.setStyleSheet(QApplication.instance().styleSheet())
         if dlg.exec():
             self.cfg = dlg.result_cfg
             save_cfg(self.cfg)
@@ -410,7 +414,7 @@ class MainWindow(QMainWindow):
 
     def _reload_icons(self) -> None:
         """Swap all toolbar icons to match the current theme."""
-        t = self.cfg.get("theme", "dark")
+        t = th.icon_variant(self.cfg.get("theme", "Dark"))
         for btn, name in self._icon_btns.items():
             ico = _icon(name, t)
             if ico:
@@ -422,7 +426,7 @@ class MainWindow(QMainWindow):
 
     def _update_panel_icon(self) -> None:
         """Set the panel toggle button icon from self._panel_open state."""
-        t    = self.cfg.get("theme", "dark")
+        t = th.icon_variant(self.cfg.get("theme", "Dark"))
         name = "panel_open" if self._panel_open else "panel_closed"
         ico  = _icon(name, t)
         if ico:

@@ -43,6 +43,12 @@ if [ -d "$SCRIPT_DIR/icons" ]; then
     ICONS_ARG="--add-data $SCRIPT_DIR/icons:icons"
 fi
 
+# ── Themes folder ────────────────────────────────────────────────────────────
+THEMES_ARG=""
+if [ -d "$SCRIPT_DIR/image_splicer/themes" ]; then
+    THEMES_ARG="--add-data $SCRIPT_DIR/image_splicer/themes:themes"
+fi
+
 # ── Run PyInstaller ───────────────────────────────────────────────────────────
 cd "$SCRIPT_DIR"
 
@@ -56,6 +62,7 @@ python3 -m PyInstaller \
     --specpath "$WORK_DIR" \
     --add-data "$SCRIPT_DIR/style.qss:." \
     $ICONS_ARG \
+    $THEMES_ARG \
     $ICON_ARG \
     --hidden-import PyQt6.sip \
     --collect-all PyQt6 \

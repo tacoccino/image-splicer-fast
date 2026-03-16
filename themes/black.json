@@ -1,0 +1,13 @@
+{
+  "name": "Black",
+  "base": "dark",
+  "surface_hi": "#1e1e1e",
+  "surface":    "#141414",
+  "panel":      "#181818",
+  "bg":         "#0a0a0a",
+  "canvas":     "#000000",
+  "text":       "#e8e8e8",
+  "text_white": "#ffffff",
+  "textdim":    "#666666",
+  "accent":     "#e94560"
+}
