@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
 
         self.side = SidePanel()
         self.side.set_name_change_callback(self._on_sel_name_change)
+        self.side.set_row_click_callback(self._on_row_click)
         self.side.prefix_edit.setText(self.cfg.get("prefix", "crop"))
         self.side.prefix_edit.textChanged.connect(
             lambda t: self._persist("prefix", t.strip() or "crop"))
@@ -184,11 +185,16 @@ class MainWindow(QMainWindow):
         self._btn_clear    = ibtn("✕  Clear All",   "Clear all selections", "grey",  "clear")
         self._btn_settings = ibtn("⚙  Settings",   f"Settings ({m}+,)", icon_name="settings")
 
-        self._btn_overlay = ibtn("⬚  Overlay", f"Toggle selection overlay  ({m}+T)",
-                                  icon_name="overlay")
+        self._btn_overlay  = ibtn("⬚  Overlay", f"Toggle selection overlay  ({m}+T)",
+                                   icon_name="overlay")
+        self._btn_select_all = ibtn("⊞  Select All", f"Select all  ({m}+A)",
+                                     icon_name="select_all")
+        self._btn_deselect   = ibtn("◻  Deselect", "Deselect all  (Escape)",
+                                     icon_name="deselect")
 
         for w in (self._btn_open, self._btn_save, self._btn_open_dir,
-                  _vsep(), self._btn_del, self._btn_clear,
+                  _vsep(), self._btn_del, self._btn_select_all,
+                  self._btn_deselect, self._btn_clear,
                   _vsep(), self._btn_overlay, _vsep(), self._btn_settings):
             lay.addWidget(w)
 
@@ -216,6 +222,8 @@ class MainWindow(QMainWindow):
         # Connect signals
         self._btn_open.clicked.connect(self._open_file)
         self._btn_overlay.clicked.connect(self._toggle_overlay)
+        self._btn_select_all.clicked.connect(self.canvas.select_all)
+        self._btn_deselect.clicked.connect(self.canvas.deselect_all)
         self._btn_save.clicked.connect(self._save_crops)
         self._btn_open_dir.clicked.connect(self._open_save_dir)
         self._btn_del.clicked.connect(self.canvas.delete_active)
@@ -244,7 +252,8 @@ class MainWindow(QMainWindow):
         sc(f"{m}+0",    self._zoom_fit)
         sc("Delete",    self.canvas.delete_active)
         sc("Backspace", self.canvas.delete_active)
-        sc("Escape",    self._cancel_draw)
+        sc("Escape",    self._cancel_or_deselect)
+        sc(f"{m}+A",    self.canvas.select_all)
         sc(f"{m}+T",    self._toggle_overlay)
         sc(f"{m}+\\",  self._toggle_panel)
 
@@ -267,6 +276,13 @@ class MainWindow(QMainWindow):
             self.canvas.scene.removeItem(self.canvas._rubber)
             self.canvas._rubber  = None
             self.canvas._drawing = False
+
+    def _cancel_or_deselect(self) -> None:
+        """Escape: cancel active draw first; if none, deselect all."""
+        if self.canvas._drawing and self.canvas._rubber:
+            self._cancel_draw()
+        else:
+            self.canvas.deselect_all()
 
     def _toggle_overlay(self) -> None:
         """Toggle semi-transparent fill overlay on all selections."""
@@ -322,11 +338,15 @@ class MainWindow(QMainWindow):
     # ── selections list ───────────────────────────────────────────────────────
 
     def _refresh_list(self) -> None:
-        self.side.refresh(self.canvas.sels, self.canvas.active,
-                          self.canvas.delete_sel)
+        self.side.refresh(self.canvas.sels, self.canvas.primary,
+                          self.canvas.delete_sel,
+                          self.canvas.active_sels)
         n      = len(self.canvas.sels)
-        active = self.canvas.active
-        if active is not None and active < n:
+        active = self.canvas.primary
+        nsel   = len(self.canvas.active_sels)
+        if nsel > 1:
+            self._status(f"{nsel} selections selected   |   {n} total")
+        elif active is not None and active < n:
             s = self.canvas.sels[active]
             self._status(
                 f"Selection #{active+1} — {int(s.width())}×{int(s.height())}px"
@@ -337,6 +357,10 @@ class MainWindow(QMainWindow):
         """Refresh canvas labels when the user edits a selection name."""
         for item in self.canvas.sel_items:
             item._sync()
+
+    def _on_row_click(self, idx: int, shift: bool) -> None:
+        """Badge click in side panel — select or Shift+add to selection."""
+        self.canvas.activate_sel(idx, add=shift)
 
     # ── file handling ─────────────────────────────────────────────────────────
 

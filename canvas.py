@@ -39,8 +39,10 @@ class SelItem(QGraphicsRectItem):
         self._drag_mode   = None   # None | "move" | edge code string
         self._drag_start  = None   # QPointF scene position at drag start
         self._orig        = None   # (ix1, iy1, ix2, iy2) snapshot
-        self._duplicating = False  # Alt/Option drag-to-duplicate
-        self._dup_ghost   = None   # ghost QGraphicsRectItem during duplicate
+        self._duplicating = False   # Alt/Option drag-to-duplicate
+        self._dup_ghost   = None    # primary ghost (compat reference)
+        self._dup_ghosts: list = [] # all ghost items [(idx, QGraphicsRectItem)]
+        self._group_orig: dict = {} # {idx: rect} snapshot for group move
 
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -161,29 +163,50 @@ class SelItem(QGraphicsRectItem):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self.canvas.activate_sel(self.idx)
+            shift = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            # If clicking an already-selected item without Shift, keep the
+            # whole multi-selection intact so dragging moves all of them.
+            # Only clear and re-select if this item isn't selected yet.
+            if self.idx not in self.canvas.active_sels:
+                self.canvas.activate_sel(self.idx, add=shift)
+            elif shift:
+                self.canvas.activate_sel(self.idx, add=True)
+            else:
+                # Already selected, no shift — make this primary but keep set
+                self.canvas.primary = self.idx
             self._drag_start = e.scenePos()
             self._orig       = self.sel.rect()
+            # Snapshot all selected origins for group move
+            self._group_orig = {
+                i: self.canvas.sels[i].rect()
+                for i in self.canvas.active_sels
+                if i < len(self.canvas.sels)
+            }
             alt = bool(e.modifiers() & Qt.KeyboardModifier.AltModifier)
             if alt and self._hit_part(e.pos()) == "move":
-                # Alt+drag — start a duplicate ghost, leave original in place
+                # Alt+drag — create ghosts for ALL selected items
                 self._duplicating = True
                 self._drag_mode   = "move"
-                x1, y1, x2, y2 = self.sel.rect()
-                self._dup_ghost = QGraphicsRectItem(
-                    QRectF(QPointF(x1, y1), QPointF(x2, y2)))
-                self._dup_ghost.setPen(
-                    QPen(th.C_SEL_ACT, 2, Qt.PenStyle.DashLine))
-                # Show overlay fill on ghost when overlay mode is active,
-                # at half the configured opacity so it reads as a preview
+                self._dup_ghost   = None  # primary ghost (this item)
+                self._dup_ghosts: list = []  # all ghosts including primary
+                brush = QBrush(Qt.BrushStyle.NoBrush)
                 if self.canvas.overlay_mode:
                     ghost_fill = QColor(th.C_OVERLAY)
                     ghost_fill.setAlpha(max(20, th.OVERLAY_ALPHA // 2))
-                    self._dup_ghost.setBrush(QBrush(ghost_fill))
-                else:
-                    self._dup_ghost.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                self._dup_ghost.setZValue(10)
-                self.canvas.scene.addItem(self._dup_ghost)
+                    brush = QBrush(ghost_fill)
+                for i in sorted(self.canvas.active_sels):
+                    if i >= len(self.canvas.sels): continue
+                    ox1, oy1, ox2, oy2 = self._group_orig.get(
+                        i, self.canvas.sels[i].rect())
+                    g = QGraphicsRectItem(
+                        QRectF(QPointF(ox1, oy1), QPointF(ox2, oy2)))
+                    g.setPen(QPen(th.C_SEL_ACT, 2, Qt.PenStyle.DashLine))
+                    g.setBrush(brush)
+                    g.setZValue(10)
+                    self.canvas.scene.addItem(g)
+                    self._dup_ghosts.append((i, g))
+                    if i == self.idx:
+                        self._dup_ghost = g  # keep ref for compat
                 self.canvas.setCursor(
                     QCursor(Qt.CursorShape.DragCopyCursor))
             else:
@@ -200,24 +223,38 @@ class SelItem(QGraphicsRectItem):
         x1o, y1o, x2o, y2o = self._orig
 
         if self._duplicating:
-            # Move ghost only — original stays untouched
-            if self._dup_ghost:
-                self._dup_ghost.setRect(QRectF(
-                    QPointF(x1o + dx, y1o + dy),
-                    QPointF(x2o + dx, y2o + dy)))
+            # Move all ghosts together
+            for i, g in getattr(self, '_dup_ghosts', []):
+                orig = self._group_orig.get(i)
+                if orig is None: continue
+                ox1, oy1, ox2, oy2 = orig
+                g.setRect(QRectF(
+                    QPointF(ox1 + dx, oy1 + dy),
+                    QPointF(ox2 + dx, oy2 + dy)))
         else:
-            s = self.sel
             p = self._drag_mode
-            if   p == "move": s.ix1,s.iy1,s.ix2,s.iy2 = x1o+dx,y1o+dy,x2o+dx,y2o+dy
-            elif p == "TL":   s.ix1,s.iy1 = x1o+dx, y1o+dy
-            elif p == "TR":   s.ix2,s.iy1 = x2o+dx, y1o+dy
-            elif p == "BL":   s.ix1,s.iy2 = x1o+dx, y2o+dy
-            elif p == "BR":   s.ix2,s.iy2 = x2o+dx, y2o+dy
-            elif p == "L":    s.ix1 = x1o+dx
-            elif p == "R":    s.ix2 = x2o+dx
-            elif p == "T":    s.iy1 = y1o+dy
-            elif p == "B":    s.iy2 = y2o+dy
-            self._sync()
+            if p == "move" and len(self.canvas.active_sels) > 1:
+                # Move ALL selected items uniformly
+                for i in self.canvas.active_sels:
+                    if i >= len(self.canvas.sels): continue
+                    orig = self._group_orig.get(i)
+                    if orig is None: continue
+                    ox1, oy1, ox2, oy2 = orig
+                    t = self.canvas.sels[i]
+                    t.ix1,t.iy1,t.ix2,t.iy2 = ox1+dx, oy1+dy, ox2+dx, oy2+dy
+                    self.canvas.sel_items[i]._sync()
+            else:
+                s = self.sel
+                if   p == "move": s.ix1,s.iy1,s.ix2,s.iy2 = x1o+dx,y1o+dy,x2o+dx,y2o+dy
+                elif p == "TL":   s.ix1,s.iy1 = x1o+dx, y1o+dy
+                elif p == "TR":   s.ix2,s.iy1 = x2o+dx, y1o+dy
+                elif p == "BL":   s.ix1,s.iy2 = x1o+dx, y2o+dy
+                elif p == "BR":   s.ix2,s.iy2 = x2o+dx, y2o+dy
+                elif p == "L":    s.ix1 = x1o+dx
+                elif p == "R":    s.ix2 = x2o+dx
+                elif p == "T":    s.iy1 = y1o+dy
+                elif p == "B":    s.iy2 = y2o+dy
+                self._sync()
             self.canvas.refresh_list()
         e.accept()
 
@@ -237,27 +274,43 @@ class SelItem(QGraphicsRectItem):
         act_del    = menu.addAction("Delete")
         chosen = menu.exec(e.screenPos())
         if chosen == act_dup:
-            # Duplicate in place with a small offset so it's visible
-            s = self.sel
             offset = 20
-            new_sel = self.canvas.add_sel(
-                s.ix1 + offset, s.iy1 + offset,
-                s.ix2 + offset, s.iy2 + offset)
-            new_sel.name = s.name
-            self.canvas.sel_items[-1]._sync()
+            for i in sorted(self.canvas.active_sels):
+                if i >= len(self.canvas.sels): continue
+                s = self.canvas.sels[i]
+                ns = self.canvas.add_sel(
+                    s.ix1+offset, s.iy1+offset, s.ix2+offset, s.iy2+offset)
+                ns.name = s.name
+                self.canvas.sel_items[-1]._sync()
         elif chosen == act_del:
-            self.canvas.delete_sel(self.idx)
+            self.canvas.delete_active()
         e.accept()
 
     def mouseReleaseEvent(self, e):
-        if self._duplicating and self._dup_ghost:
-            r = self._dup_ghost.rect()
-            self.canvas.scene.removeItem(self._dup_ghost)
-            self._dup_ghost = None
-            new_sel = self.canvas.add_sel(
-                r.left(), r.top(), r.right(), r.bottom())
-            new_sel.name = self.sel.name  # carry name over
-            self.canvas.sel_items[-1]._sync()  # refresh label
+        if self._duplicating:
+            sp = e.scenePos()
+            dx = sp.x() - self._drag_start.x()
+            dy = sp.y() - self._drag_start.y()
+            # Remove all ghosts
+            for _, g in getattr(self, '_dup_ghosts', []):
+                self.canvas.scene.removeItem(g)
+            self._dup_ghost  = None
+            self._dup_ghosts = []
+            # Create new selections and collect their indices
+            new_indices = []
+            for i in sorted(self.canvas.active_sels):
+                if i >= len(self.canvas.sels): continue
+                orig = self._group_orig.get(i, self.canvas.sels[i].rect())
+                ox1, oy1, ox2, oy2 = orig
+                ns = self.canvas.add_sel(ox1+dx, oy1+dy, ox2+dx, oy2+dy)
+                ns.name = self.canvas.sels[i].name
+                new_indices.append(len(self.canvas.sels) - 1)
+                self.canvas.sel_items[-1]._sync()
+            # Select all newly created items
+            if new_indices:
+                self.canvas.deselect_all()
+                for idx in new_indices:
+                    self.canvas.activate_sel(idx, add=True)
             self.canvas.setCursor(QCursor(Qt.CursorShape.CrossCursor))
         self._duplicating = False
         self._drag_mode   = None
@@ -302,9 +355,10 @@ class Canvas(QGraphicsView):
         self.zoom:      float              = 1.0
         self._pixmap:   QPixmap | None     = None
         self._px_item                      = None
-        self.sels:      list[Sel]          = []
-        self.sel_items: list[SelItem]      = []
-        self.active:    int | None         = None
+        self.sels:        list[Sel]      = []
+        self.sel_items:   list[SelItem]  = []
+        self.active_sels: set[int]       = set()  # all selected indices
+        self.primary:     int | None     = None   # last-clicked (resize/hover)
         self._drawing   = False
         self._draw_start: QPointF | None   = None
         self._rubber:   QGraphicsRectItem | None = None
@@ -317,6 +371,19 @@ class Canvas(QGraphicsView):
         self.refresh_list: callable        = lambda: None
         self.on_sel_hover: callable        = lambda idx, part: None
         self.on_sel_leave: callable        = lambda: None
+
+    # ── backwards-compat property ─────────────────────────────────────────────
+
+    @property
+    def active(self) -> int | None:
+        """Primary selected index (last clicked). None if nothing selected."""
+        return self.primary
+
+    @active.setter
+    def active(self, val: int | None) -> None:
+        """Setting active clears multi-selection and sets primary."""
+        self.active_sels = set() if val is None else {val}
+        self.primary = val
 
     # ── image ─────────────────────────────────────────────────────────────────
 
@@ -378,16 +445,50 @@ class Canvas(QGraphicsView):
         self.refresh_list()
         return s
 
-    def activate_sel(self, idx: int | None) -> None:
-        if self.active is not None and self.active < len(self.sel_items):
-            self.sel_items[self.active].set_active(False)
-        self.active = idx
+    def activate_sel(self, idx: int | None,
+                     add: bool = False) -> None:
+        """
+        Select a single item (clears others unless add=True).
+        add=True: Shift-click behaviour — toggle idx in/out of active_sels.
+        """
+        if not add:
+            # Clear all existing
+            for i in list(self.active_sels):
+                if i < len(self.sel_items):
+                    self.sel_items[i].set_active(False)
+            self.active_sels.clear()
+            self.primary = None
         if idx is not None and idx < len(self.sel_items):
-            self.sel_items[idx].set_active(True)
+            if add and idx in self.active_sels:
+                # Toggle off
+                self.active_sels.discard(idx)
+                self.sel_items[idx].set_active(False)
+                self.primary = max(self.active_sels) if self.active_sels else None
+            else:
+                self.active_sels.add(idx)
+                self.primary = idx
+                self.sel_items[idx].set_active(True)
         self.refresh_list()
 
     def deactivate(self) -> None:
         self.activate_sel(None)
+
+    def deselect_all(self) -> None:
+        """Clear all selections without deleting them."""
+        for i in list(self.active_sels):
+            if i < len(self.sel_items):
+                self.sel_items[i].set_active(False)
+        self.active_sels.clear()
+        self.primary = None
+        self.refresh_list()
+
+    def select_all(self) -> None:
+        """Select every selection on the canvas."""
+        for i in range(len(self.sels)):
+            self.active_sels.add(i)
+            self.sel_items[i].set_active(True)
+        self.primary = len(self.sels) - 1 if self.sels else None
+        self.refresh_list()
 
     def delete_sel(self, idx: int | None) -> None:
         if idx is None or idx >= len(self.sels):
@@ -395,14 +496,22 @@ class Canvas(QGraphicsView):
         self.scene.removeItem(self.sel_items[idx])
         self.sels.pop(idx)
         self.sel_items.pop(idx)
-        self.active = None
+        # Shift active_sels indices down past the deleted item
+        self.active_sels = {
+            i - 1 if i > idx else i
+            for i in self.active_sels if i != idx
+        }
+        self.primary = max(self.active_sels) if self.active_sels else None
         for i, item in enumerate(self.sel_items):
             item.idx = i
+            item.set_active(i in self.active_sels)
             item._sync()
         self.refresh_list()
 
     def delete_active(self) -> None:
-        self.delete_sel(self.active)
+        """Delete all currently selected selections."""
+        for idx in sorted(self.active_sels, reverse=True):
+            self.delete_sel(idx)
 
     def delete_last(self) -> None:
         if self.sels:
@@ -413,7 +522,8 @@ class Canvas(QGraphicsView):
             self.scene.removeItem(item)
         self.sels.clear()
         self.sel_items.clear()
-        self.active = None
+        self.active_sels.clear()
+        self.primary = None
         self.refresh_list()
 
     def _redraw_all_sels(self) -> None:
@@ -457,9 +567,11 @@ class Canvas(QGraphicsView):
             e.accept()
             return
 
+        # Clicking empty space deselects all
+        self.deselect_all()
+
         # Start drawing a new selection
         if self.pil_img:
-            self.deactivate()
             self._drawing    = True
             self._draw_start = sp
             self._rubber     = QGraphicsRectItem()
@@ -556,6 +668,27 @@ class Canvas(QGraphicsView):
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_active()
+            e.accept()
+        elif e.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                         Qt.Key.Key_Up,   Qt.Key.Key_Down):
+            # Arrow keys move the active selection; Shift = 10px, else 1px
+            if not self.active_sels:
+                e.ignore()
+                return
+            step = 10 if e.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
+            dx, dy = 0, 0
+            if e.key() == Qt.Key.Key_Left:  dx = -step
+            if e.key() == Qt.Key.Key_Right: dx =  step
+            if e.key() == Qt.Key.Key_Up:    dy = -step
+            if e.key() == Qt.Key.Key_Down:  dy =  step
+            for i in self.active_sels:
+                if i >= len(self.sels): continue
+                s = self.sels[i]
+                s.ix1 += dx; s.ix2 += dx
+                s.iy1 += dy; s.iy2 += dy
+                self.sel_items[i]._sync()
+            self.refresh_list()
+            e.accept()
         else:
             super().keyPressEvent(e)
 

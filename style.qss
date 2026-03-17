@@ -262,3 +262,17 @@ QSlider::tick-mark:horizontal {
     width: 1px;
     height: 4px;
 }
+
+/* Selection row badge button */
+QPushButton#sel_badge_btn {
+    background: #0f3460;
+    color: #8888aa;
+    border: 1px solid #8888aa;
+    border-radius: 3px;
+    font-family: "Inter", "SF Pro Display", "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 0;
+}
+QPushButton#sel_badge_btn:hover { border-color: #e94560; color: #eaeaea; }
+QPushButton#sel_badge_btn:pressed { background: #e94560; color: #eaeaea; }

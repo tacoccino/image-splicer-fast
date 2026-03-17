@@ -9,8 +9,9 @@ SidePanel  — right-hand panel containing the selections list and options
 """
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (QLabel, QWidget, QFrame, QHBoxLayout,
-                              QVBoxLayout, QLineEdit, QCheckBox, QScrollArea)
+from PyQt6.QtWidgets import (QApplication, QLabel, QWidget, QFrame,
+                              QHBoxLayout, QVBoxLayout, QLineEdit,
+                              QCheckBox, QScrollArea, QPushButton)
 
 from models import Sel
 import theme as th
@@ -96,7 +97,9 @@ class SelRow(QWidget):
     """
 
     def __init__(self, sel: Sel, idx: int,
-                 on_name_change: callable, parent=None):
+                 on_name_change: callable,
+                 on_click: callable = lambda i, shift: None,
+                 parent=None):
         super().__init__(parent)
         self.sel = sel
 
@@ -104,11 +107,17 @@ class SelRow(QWidget):
         lay.setContentsMargins(6, 3, 6, 3)
         lay.setSpacing(6)
 
-        # Index badge
-        self._badge = QLabel(f"#{idx + 1}")
-        self._badge.setObjectName("sel_badge")
-        self._badge.setFixedWidth(26)
-        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Index badge — clickable to select/add to selection
+        self._badge = QPushButton(f"#{idx + 1}")
+        self._badge.setObjectName("sel_badge_btn")
+        self._badge.setFixedSize(26, 26)
+        self._badge.setToolTip(
+            "Click to select  ·  Shift+click to add to selection")
+        self._badge.clicked.connect(
+            lambda checked, i=idx, fn=on_click: fn(
+                i,
+                bool(QApplication.keyboardModifiers()
+                     & Qt.KeyboardModifier.ShiftModifier)))
         lay.addWidget(self._badge)
 
         # Editable name
@@ -165,6 +174,7 @@ class SidePanel(QWidget):
 
         self._rows: list[SelRow]  = []
         self._name_change_cb: callable = lambda: None
+        self._row_click_cb: callable   = lambda i, shift: None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 12, 8, 12)
@@ -224,20 +234,30 @@ class SidePanel(QWidget):
         """Called whenever the user edits a selection name."""
         self._name_change_cb = fn
 
-    def refresh(self, sels: list[Sel], active_idx: int | None,
-                on_delete: callable) -> None:
+    def set_row_click_callback(self, fn: callable) -> None:
+        """Called when a badge is clicked: fn(idx, shift_held)."""
+        self._row_click_cb = fn
+
+    def refresh(self, sels: list[Sel],
+                active_idx: int | None,
+                on_delete: callable,
+                active_set: set | None = None) -> None:
         """Rebuild the row list to match the current set of selections."""
+        if active_set is None:
+            active_set = {active_idx} if active_idx is not None else set()
         for row in self._rows:
             self._list_lay.removeWidget(row)
             row.deleteLater()
         self._rows.clear()
 
         for i, s in enumerate(sels):
-            row = SelRow(s, i, self._name_change_cb)
-            row.set_active(i == active_idx)
+            row = SelRow(s, i, self._name_change_cb,
+                         on_click=self._row_click_cb)
+            row.set_active(i in active_set)
             self._list_lay.insertWidget(i, row)
             self._rows.append(row)
 
-        # Update size label for the active row (may have just been resized)
-        if active_idx is not None and active_idx < len(self._rows):
-            self._rows[active_idx].update_size(sels[active_idx])
+        # Update size labels for all active rows
+        for i in active_set:
+            if i < len(self._rows):
+                self._rows[i].update_size(sels[i])
