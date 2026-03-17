@@ -111,7 +111,7 @@ class SelRow(QWidget):
         # Index badge — clickable to select/add to selection
         self._badge = QPushButton(f"#{idx + 1}")
         self._badge.setObjectName("sel_badge_btn")
-        self._badge.setFixedSize(26, 26)
+        self._badge.setFixedWidth(26)
         self._badge.setToolTip(
             "Click to select  ·  Shift+click to add to selection")
         self._badge.clicked.connect(
@@ -132,9 +132,10 @@ class SelRow(QWidget):
         # Size display
         self._size_lbl = QLabel(self._size_str(sel))
         self._size_lbl.setObjectName("dimmed")
-        self._size_lbl.setFixedWidth(66)
+        self._size_lbl.setFixedWidth(60)
         self._size_lbl.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._size_lbl.setContentsMargins(0, 4, 4, 4)
         lay.addWidget(self._size_lbl)
 
     @staticmethod

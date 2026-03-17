@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         self._splitter.addWidget(self.side)
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 0)
-        self._splitter.setSizes([850, 210])
+        self._splitter.setSizes([850, 310])
         root.addWidget(self._splitter, stretch=1)
 
         # Status bar
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
         self._btn_save     = ibtn("✦  Save Crops",  f"Save all crops ({m}+S)", "green", "save")
         self._btn_open_dir = ibtn("📂  Open Folder", "Open save location folder", "grey",  "folder")
         self._btn_del      = ibtn("⌫  Delete",  "Delete selected crops  (Delete / Backspace)", "grey",  "delete")
-        self._btn_clear    = ibtn("✕  Clear All",   "Clear all crops", "grey",  "clear")
+        self._btn_clear    = ibtn("✕  Clear All",   "Clear all crops", "clear_danger", "clear")
         self._btn_settings = ibtn("⚙  Settings",   f"Settings ({m}+,)", icon_name="settings")
 
         self._btn_overlay  = ibtn("⬚  Overlay", f"Toggle crop overlay  ({m}+T)",

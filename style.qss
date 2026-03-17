@@ -63,6 +63,11 @@ QPushButton#grey         { background: transparent; color: #eaeaea; }
 QPushButton#grey:hover   { background: #1a4070; color: #eaeaea; }
 QPushButton#grey:pressed { background: #0f3460; color: #eaeaea; }
 
+/* Clear All — red hover to signal destructive action */
+QPushButton#clear_danger         { background: transparent; color: #eaeaea; border: none; border-radius: 6px; padding: 5px 10px; min-height: 28px; min-width: 28px; }
+QPushButton#clear_danger:hover   { background: #7a2a2a; color: #eaeaea; }
+QPushButton#clear_danger:pressed { background: #5a1a1a; color: #eaeaea; }
+
 /* Dialog OK/Save button — solid accent so it reads as the primary action */
 QPushButton#dialog_ok {
     background: #e94560;
@@ -162,6 +167,8 @@ QLineEdit {
     border: 1px solid #8888aa;
     border-radius: 6px;
     padding: 4px 10px;
+    min-height: 15px;
+    max-height: 15px;
     font-family: "Inter", "SF Pro Display", "Segoe UI Variable", "Segoe UI", sans-serif;
     font-size: 9pt;
     selection-background-color: #e94560;
@@ -272,7 +279,9 @@ QPushButton#sel_badge_btn {
     font-family: "Inter", "SF Pro Display", "Segoe UI Variable", "Segoe UI", sans-serif;
     font-size: 8pt;
     font-weight: 600;
-    padding: 0;
+    padding: 4px 0px;
+    min-height: 15px;
+    max-height: 15px;
 }
 QPushButton#sel_badge_btn:hover { border-color: #e94560; color: #eaeaea; }
 QPushButton#sel_badge_btn:pressed { background: #e94560; color: #eaeaea; }
