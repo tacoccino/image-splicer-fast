@@ -19,6 +19,9 @@ import theme as th
 
 EDGE        = 10   # px from rect edge that counts as a resize hit
 HANDLE_SIZE = 8    # corner handle square side length
+# NOTE: "Sel/SelItem" are the internal class names for crop regions.
+# In the UI these are called "crops". "selected/active" refers to
+# the highlighted state of those crops, not the crops themselves.
 
 
 class SelItem(QGraphicsRectItem):
@@ -268,10 +271,10 @@ class SelItem(QGraphicsRectItem):
             "QMenu::item { padding: 6px 20px; border-radius: 3px; }"
             "QMenu::item:selected { background: #e94560; }"
             "QMenu::separator { height: 1px; background: #8888aa; margin: 3px 8px; }")
-        act_dup    = menu.addAction("Duplicate")
+        act_dup = menu.addAction("Duplicate Crop")
         act_dup.setToolTip("Alt+drag")
         menu.addSeparator()
-        act_del    = menu.addAction("Delete")
+        act_del = menu.addAction("Delete Crop")
         chosen = menu.exec(e.screenPos())
         if chosen == act_dup:
             offset = 20

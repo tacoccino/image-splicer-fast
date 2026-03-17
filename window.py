@@ -181,15 +181,15 @@ class MainWindow(QMainWindow):
         self._btn_open     = ibtn("⊞  Open Image",  f"Open image ({m}+O)", "accent",  "open")
         self._btn_save     = ibtn("✦  Save Crops",  f"Save all crops ({m}+S)", "green", "save")
         self._btn_open_dir = ibtn("📂  Open Folder", "Open save location folder", "grey",  "folder")
-        self._btn_del      = ibtn("⌫  Delete Sel",  "Delete selected  (Delete / Backspace)", "grey",  "delete")
-        self._btn_clear    = ibtn("✕  Clear All",   "Clear all selections", "grey",  "clear")
+        self._btn_del      = ibtn("⌫  Delete",  "Delete selected crops  (Delete / Backspace)", "grey",  "delete")
+        self._btn_clear    = ibtn("✕  Clear All",   "Clear all crops", "grey",  "clear")
         self._btn_settings = ibtn("⚙  Settings",   f"Settings ({m}+,)", icon_name="settings")
 
-        self._btn_overlay  = ibtn("⬚  Overlay", f"Toggle selection overlay  ({m}+T)",
+        self._btn_overlay  = ibtn("⬚  Overlay", f"Toggle crop overlay  ({m}+T)",
                                    icon_name="overlay")
-        self._btn_select_all = ibtn("⊞  Select All", f"Select all  ({m}+A)",
+        self._btn_select_all = ibtn("⊞  Select All", f"Select all crops  ({m}+A)",
                                      icon_name="select_all")
-        self._btn_deselect   = ibtn("◻  Deselect", "Deselect all  (Escape)",
+        self._btn_deselect   = ibtn("◻  Deselect", "Deselect all crops  (Escape)",
                                      icon_name="deselect")
 
         for w in (self._btn_open, self._btn_save, self._btn_open_dir,
@@ -208,7 +208,7 @@ class MainWindow(QMainWindow):
         self._btn_fit   = ibtn("⊡", f"Fit image to window  ({m}+0)", icon_name="fit")
         self._btn_zin   = ibtn("+", f"Zoom in  ({m}+=  or  {m}+Scroll)",  icon_name="zoom_in")
         self._btn_zout  = ibtn("−", f"Zoom out  ({m}+−  or  {m}+Scroll)", icon_name="zoom_out")
-        self._btn_panel = ibtn("▐", f"Show/hide selections panel  ({self._mod}+\\)")
+        self._btn_panel = ibtn("▐", f"Show/hide crops panel  ({self._mod}+\\)")
         for b in (self._btn_fit, self._btn_zin, self._btn_zout, self._btn_panel):
             b.setFixedWidth(38)
 
@@ -305,13 +305,13 @@ class MainWindow(QMainWindow):
         if not self._panel_open:
             self._panel_width = self._splitter.sizes()[1]
             self.side.hide()
-            self._btn_panel.setToolTip("Show selections panel")
+            self._btn_panel.setToolTip("Show crops panel")
         else:
             self.side.show()
             w     = getattr(self, "_panel_width", 210)
             total = sum(self._splitter.sizes())
             self._splitter.setSizes([total - w, w])
-            self._btn_panel.setToolTip("Hide selections panel")
+            self._btn_panel.setToolTip("Hide crops panel")
         self._update_panel_icon()
 
     # ── status / coord display ────────────────────────────────────────────────
@@ -323,7 +323,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg)
 
     def _on_sel_hover(self, idx: int, part: str) -> None:
-        """Show contextual hints in the status bar when hovering a selection."""
+        # NOTE: internally "sel" = crop region; "selected" = active/highlighted state
+        """Show contextual hints in the status bar when hovering a crop."""
         m = self._mod
         if part == "move":
             hint = "Drag to move  ·  Alt+drag to duplicate  ·  Right-click for more"
@@ -345,11 +346,11 @@ class MainWindow(QMainWindow):
         active = self.canvas.primary
         nsel   = len(self.canvas.active_sels)
         if nsel > 1:
-            self._status(f"{nsel} selections selected   |   {n} total")
+            self._status(f"{nsel} crops selected   |   {n} total")
         elif active is not None and active < n:
             s = self.canvas.sels[active]
             self._status(
-                f"Selection #{active+1} — {int(s.width())}×{int(s.height())}px"
+                f"Crop #{active+1} — {int(s.width())}×{int(s.height())}px"
                 f"   |   {n} total")
         self._zoom_lbl.setText(f"{self.canvas.zoom_pct()}%")
 
@@ -405,7 +406,7 @@ class MainWindow(QMainWindow):
         self._refresh_list()
 
         self.setWindowTitle(f"Image Splicer — {Path(path).name}")
-        extra = f"  — kept {len(restore)} selection(s)" if restore else ""
+        extra = f"  — kept {len(restore)} crop(s)" if restore else ""
         self._status(
             f"Loaded: {Path(path).name}  "
             f"({new_img.width}×{new_img.height}px){extra}")
@@ -470,8 +471,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Image", "Open an image first.")
             return
         if not self.canvas.sels:
-            QMessageBox.warning(self, "No Selections",
-                "Draw at least one selection.")
+            QMessageBox.warning(self, "No Crops",
+                "Define at least one crop region first.")
             return
         sd = self.cfg.get("save_dir", "")
         if not sd or not os.path.isdir(sd):

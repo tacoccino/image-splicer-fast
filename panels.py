@@ -90,8 +90,9 @@ class Toast(QLabel):
 
 
 class SelRow(QWidget):
+    # NOTE: "Sel" = crop region (internal name). "selected" = active/highlighted state.
     """
-    One row in the selections list.
+    One row in the crops list.
 
     Layout:  [#n badge] [editable name field] [WxH size label]
     """
@@ -123,7 +124,7 @@ class SelRow(QWidget):
         # Editable name
         self._name_edit = QLineEdit(sel.name)
         self._name_edit.setPlaceholderText(f"#{idx + 1}")
-        self._name_edit.setToolTip("Name this selection (used in saved filename)")
+        self._name_edit.setToolTip("Name this crop (used in the saved filename)")
         self._name_edit.textChanged.connect(
             lambda t, s=sel, fn=on_name_change: self._on_text(t, s, fn))
         lay.addWidget(self._name_edit, stretch=1)
@@ -158,13 +159,14 @@ class SelRow(QWidget):
 
 
 class SidePanel(QWidget):
+    # NOTE: "Sel/SelRow" are internal names for crop regions.
     """
-    The right-hand selections panel.
+    The right-hand crops panel.
 
     Contains:
-      • A scrollable list of SelRow widgets
+      • A scrollable list of SelRow widgets (one per crop region)
       • A filename prefix text field
-      • A 'keep selections' checkbox
+      • A 'keep crops' checkbox
     """
 
     def __init__(self, parent=None):
@@ -181,7 +183,7 @@ class SidePanel(QWidget):
         lay.setSpacing(6)
 
         # Title
-        title = QLabel("SELECTIONS")
+        title = QLabel("CROPS")
         title.setObjectName("panel_title")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(title)
@@ -216,9 +218,9 @@ class SidePanel(QWidget):
         lay.addWidget(self.prefix_edit)
 
         # Keep-selections checkbox
-        self.keep_chk = QCheckBox("Keep selections")
+        self.keep_chk = QCheckBox("Keep crops")
         self.keep_chk.setToolTip(
-            "When loading a new image, keep selections that fit inside it")
+            "When loading a new image, keep crops that fit within its bounds")
         lay.addWidget(self.keep_chk)
 
     @staticmethod
